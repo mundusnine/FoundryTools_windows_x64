@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const assert = std.debug.assert;
 const mem = std.mem;
 const Target = std.Target;
 
@@ -25,24 +26,24 @@ pub fn detectRuntimeVersion() WindowsVersion {
     //   `---` `` ``--> Sub-version (Starting from Windows 10 onwards)
     //     \    `--> Service pack (Always zero in the constants defined)
     //      `--> OS version (Major & minor)
-    const os_ver: u16 = @intCast(u16, version_info.dwMajorVersion & 0xff) << 8 |
-        @intCast(u16, version_info.dwMinorVersion & 0xff);
+    const os_ver: u16 = @as(u16, @intCast(version_info.dwMajorVersion & 0xff)) << 8 |
+        @as(u16, @intCast(version_info.dwMinorVersion & 0xff));
     const sp_ver: u8 = 0;
     const sub_ver: u8 = if (os_ver >= 0x0A00) subver: {
         // There's no other way to obtain this info beside
         // checking the build number against a known set of
         // values
         var last_idx: usize = 0;
-        for (WindowsVersion.known_win10_build_numbers) |build, i| {
+        for (WindowsVersion.known_win10_build_numbers, 0..) |build, i| {
             if (version_info.dwBuildNumber >= build)
                 last_idx = i;
         }
-        break :subver @truncate(u8, last_idx);
+        break :subver @as(u8, @truncate(last_idx));
     } else 0;
 
     const version: u32 = @as(u32, os_ver) << 16 | @as(u16, sp_ver) << 8 | sub_ver;
 
-    return @intToEnum(WindowsVersion, version);
+    return @as(WindowsVersion, @enumFromInt(version));
 }
 
 // Technically, a registry value can be as long as 1MB. However, MS recommends storing
@@ -89,33 +90,29 @@ fn getCpuInfoFromRegistry(core: usize, args: anytype) !void {
         .DefaultLength = 0,
     };
 
-    inline for (fields_info) |field, i| {
+    var tmp_bufs: [fields_info.len][max_value_len]u8 align(@alignOf(std.os.windows.UNICODE_STRING)) = undefined;
+
+    inline for (fields_info, 0..) |field, i| {
         const ctx: *anyopaque = blk: {
             switch (@field(args, field.name).value_type) {
                 REG.SZ,
                 REG.EXPAND_SZ,
                 REG.MULTI_SZ,
                 => {
-                    var buf: [max_value_len / 2]u16 = undefined;
-                    var unicode = std.os.windows.UNICODE_STRING{
+                    comptime assert(@sizeOf(std.os.windows.UNICODE_STRING) % 2 == 0);
+                    const unicode = @as(*std.os.windows.UNICODE_STRING, @ptrCast(&tmp_bufs[i]));
+                    unicode.* = .{
                         .Length = 0,
-                        .MaximumLength = max_value_len,
-                        .Buffer = &buf,
+                        .MaximumLength = max_value_len - @sizeOf(std.os.windows.UNICODE_STRING),
+                        .Buffer = @as([*]u16, @ptrCast(tmp_bufs[i][@sizeOf(std.os.windows.UNICODE_STRING)..])),
                     };
-                    break :blk &unicode;
+                    break :blk unicode;
                 },
 
                 REG.DWORD,
                 REG.DWORD_BIG_ENDIAN,
-                => {
-                    var buf: [4]u8 = undefined;
-                    break :blk &buf;
-                },
-
-                REG.QWORD => {
-                    var buf: [8]u8 = undefined;
-                    break :blk &buf;
-                },
+                REG.QWORD,
+                => break :blk &tmp_bufs[i],
 
                 else => unreachable,
             }
@@ -156,13 +153,13 @@ fn getCpuInfoFromRegistry(core: usize, args: anytype) !void {
     );
     switch (res) {
         .SUCCESS => {
-            inline for (fields_info) |field, i| switch (@field(args, field.name).value_type) {
+            inline for (fields_info, 0..) |field, i| switch (@field(args, field.name).value_type) {
                 REG.SZ,
                 REG.EXPAND_SZ,
                 REG.MULTI_SZ,
                 => {
                     var buf = @field(args, field.name).value_buf;
-                    const entry = @ptrCast(*align(1) const std.os.windows.UNICODE_STRING, table[i + 1].EntryContext);
+                    const entry = @as(*align(1) const std.os.windows.UNICODE_STRING, @ptrCast(table[i + 1].EntryContext));
                     const len = try std.unicode.utf16leToUtf8(buf, entry.Buffer[0 .. entry.Length / 2]);
                     buf[len] = 0;
                 },
@@ -171,13 +168,13 @@ fn getCpuInfoFromRegistry(core: usize, args: anytype) !void {
                 REG.DWORD_BIG_ENDIAN,
                 REG.QWORD,
                 => {
-                    const entry = @ptrCast([*]align(1) const u8, table[i + 1].EntryContext);
+                    const entry = @as([*]align(1) const u8, @ptrCast(table[i + 1].EntryContext));
                     switch (@field(args, field.name).value_type) {
                         REG.DWORD, REG.DWORD_BIG_ENDIAN => {
-                            mem.copy(u8, @field(args, field.name).value_buf[0..4], entry[0..4]);
+                            @memcpy(@field(args, field.name).value_buf[0..4], entry[0..4]);
                         },
                         REG.QWORD => {
-                            mem.copy(u8, @field(args, field.name).value_buf[0..8], entry[0..8]);
+                            @memcpy(@field(args, field.name).value_buf[0..8], entry[0..8]);
                         },
                         else => unreachable,
                     }
@@ -191,7 +188,7 @@ fn getCpuInfoFromRegistry(core: usize, args: anytype) !void {
 }
 
 fn setFeature(comptime Feature: type, cpu: *Target.Cpu, feature: Feature, enabled: bool) void {
-    const idx = @as(Target.Cpu.Feature.Set.Index, @enumToInt(feature));
+    const idx = @as(Target.Cpu.Feature.Set.Index, @intFromEnum(feature));
 
     if (enabled) cpu.features.addFeature(idx) else cpu.features.removeFeature(idx);
 }
@@ -257,18 +254,18 @@ pub fn detectNativeCpuAndFeatures() ?Target.Cpu {
                 // CP 4039 -> ID_AA64MMFR1_EL1
                 // CP 403A -> ID_AA64MMFR2_EL1
                 getCpuInfoFromRegistry(i, .{
-                    .{ .key = "CP 4000", .value_type = REG.QWORD, .value_buf = @ptrCast(*[8]u8, &registers[0]) },
-                    .{ .key = "CP 4020", .value_type = REG.QWORD, .value_buf = @ptrCast(*[8]u8, &registers[1]) },
-                    .{ .key = "CP 4021", .value_type = REG.QWORD, .value_buf = @ptrCast(*[8]u8, &registers[2]) },
-                    .{ .key = "CP 4028", .value_type = REG.QWORD, .value_buf = @ptrCast(*[8]u8, &registers[3]) },
-                    .{ .key = "CP 4029", .value_type = REG.QWORD, .value_buf = @ptrCast(*[8]u8, &registers[4]) },
-                    .{ .key = "CP 402C", .value_type = REG.QWORD, .value_buf = @ptrCast(*[8]u8, &registers[5]) },
-                    .{ .key = "CP 402D", .value_type = REG.QWORD, .value_buf = @ptrCast(*[8]u8, &registers[6]) },
-                    .{ .key = "CP 4030", .value_type = REG.QWORD, .value_buf = @ptrCast(*[8]u8, &registers[7]) },
-                    .{ .key = "CP 4031", .value_type = REG.QWORD, .value_buf = @ptrCast(*[8]u8, &registers[8]) },
-                    .{ .key = "CP 4038", .value_type = REG.QWORD, .value_buf = @ptrCast(*[8]u8, &registers[9]) },
-                    .{ .key = "CP 4039", .value_type = REG.QWORD, .value_buf = @ptrCast(*[8]u8, &registers[10]) },
-                    .{ .key = "CP 403A", .value_type = REG.QWORD, .value_buf = @ptrCast(*[8]u8, &registers[11]) },
+                    .{ .key = "CP 4000", .value_type = REG.QWORD, .value_buf = @as(*[8]u8, @ptrCast(&registers[0])) },
+                    .{ .key = "CP 4020", .value_type = REG.QWORD, .value_buf = @as(*[8]u8, @ptrCast(&registers[1])) },
+                    .{ .key = "CP 4021", .value_type = REG.QWORD, .value_buf = @as(*[8]u8, @ptrCast(&registers[2])) },
+                    .{ .key = "CP 4028", .value_type = REG.QWORD, .value_buf = @as(*[8]u8, @ptrCast(&registers[3])) },
+                    .{ .key = "CP 4029", .value_type = REG.QWORD, .value_buf = @as(*[8]u8, @ptrCast(&registers[4])) },
+                    .{ .key = "CP 402C", .value_type = REG.QWORD, .value_buf = @as(*[8]u8, @ptrCast(&registers[5])) },
+                    .{ .key = "CP 402D", .value_type = REG.QWORD, .value_buf = @as(*[8]u8, @ptrCast(&registers[6])) },
+                    .{ .key = "CP 4030", .value_type = REG.QWORD, .value_buf = @as(*[8]u8, @ptrCast(&registers[7])) },
+                    .{ .key = "CP 4031", .value_type = REG.QWORD, .value_buf = @as(*[8]u8, @ptrCast(&registers[8])) },
+                    .{ .key = "CP 4038", .value_type = REG.QWORD, .value_buf = @as(*[8]u8, @ptrCast(&registers[9])) },
+                    .{ .key = "CP 4039", .value_type = REG.QWORD, .value_buf = @as(*[8]u8, @ptrCast(&registers[10])) },
+                    .{ .key = "CP 403A", .value_type = REG.QWORD, .value_buf = @as(*[8]u8, @ptrCast(&registers[11])) },
                 }) catch break :blk null;
 
                 cores[i] = @import("arm.zig").aarch64.detectNativeCpuAndFeatures(current_arch, registers) orelse

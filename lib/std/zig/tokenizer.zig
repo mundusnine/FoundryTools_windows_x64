@@ -406,6 +406,38 @@ pub const Tokenizer = struct {
         saw_at_sign,
     };
 
+    /// This is a workaround to the fact that the tokenizer can queue up
+    /// 'pending_invalid_token's when parsing literals, which means that we need
+    /// to scan from the start of the current line to find a matching tag - just
+    /// in case it was an invalid character generated during literal
+    /// tokenization. Ideally this processing of this would be pushed to the AST
+    /// parser or another later stage, both to give more useful error messages
+    /// with that extra context and in order to be able to remove this
+    /// workaround.
+    pub fn findTagAtCurrentIndex(self: *Tokenizer, tag: Token.Tag) Token {
+        if (tag == .invalid) {
+            const target_index = self.index;
+            var starting_index = target_index;
+            while (starting_index > 0) {
+                if (self.buffer[starting_index] == '\n') {
+                    break;
+                }
+                starting_index -= 1;
+            }
+
+            self.index = starting_index;
+            while (self.index <= target_index or self.pending_invalid_token != null) {
+                const result = self.next();
+                if (result.loc.start == target_index and result.tag == tag) {
+                    return result;
+                }
+            }
+            unreachable;
+        } else {
+            return self.next();
+        }
+    }
+
     pub fn next(self: *Tokenizer) Token {
         if (self.pending_invalid_token) |token| {
             self.pending_invalid_token = null;
@@ -425,7 +457,16 @@ pub const Tokenizer = struct {
             const c = self.buffer[self.index];
             switch (state) {
                 .start => switch (c) {
-                    0 => break,
+                    0 => {
+                        if (self.index != self.buffer.len) {
+                            result.tag = .invalid;
+                            result.loc.start = self.index;
+                            self.index += 1;
+                            result.loc.end = self.index;
+                            return result;
+                        }
+                        break;
+                    },
                     ' ', '\n', '\t', '\r' => {
                         result.loc.start = self.index + 1;
                     },
@@ -730,6 +771,7 @@ pub const Tokenizer = struct {
                     },
                     0 => {
                         if (self.index == self.buffer.len) {
+                            result.tag = .invalid;
                             break;
                         } else {
                             self.checkLiteralCharacter();
@@ -1117,7 +1159,7 @@ pub const Tokenizer = struct {
                         state = .start;
                         result.loc.start = self.index + 1;
                     },
-                    '\t', '\r' => state = .line_comment,
+                    '\t' => state = .line_comment,
                     else => {
                         state = .line_comment;
                         self.checkLiteralCharacter();
@@ -1131,7 +1173,7 @@ pub const Tokenizer = struct {
                         result.tag = .doc_comment;
                         break;
                     },
-                    '\t', '\r' => {
+                    '\t' => {
                         state = .doc_comment;
                         result.tag = .doc_comment;
                     },
@@ -1142,17 +1184,23 @@ pub const Tokenizer = struct {
                     },
                 },
                 .line_comment => switch (c) {
-                    0 => break,
+                    0 => {
+                        if (self.index != self.buffer.len) {
+                            result.tag = .invalid;
+                            self.index += 1;
+                        }
+                        break;
+                    },
                     '\n' => {
                         state = .start;
                         result.loc.start = self.index + 1;
                     },
-                    '\t', '\r' => {},
+                    '\t' => {},
                     else => self.checkLiteralCharacter(),
                 },
                 .doc_comment => switch (c) {
                     0, '\n' => break,
-                    '\t', '\r' => {},
+                    '\t' => {},
                     else => self.checkLiteralCharacter(),
                 },
                 .int => switch (c) {
@@ -1223,7 +1271,15 @@ pub const Tokenizer = struct {
     fn getInvalidCharacterLength(self: *Tokenizer) u3 {
         const c0 = self.buffer[self.index];
         if (std.ascii.isASCII(c0)) {
-            if (std.ascii.isCntrl(c0)) {
+            if (c0 == '\r') {
+                if (self.index + 1 < self.buffer.len and self.buffer[self.index + 1] == '\n') {
+                    // Carriage returns are *only* allowed just before a linefeed as part of a CRLF pair, otherwise
+                    // they constitute an illegal byte!
+                    return 0;
+                } else {
+                    return 1;
+                }
+            } else if (std.ascii.isControl(c0)) {
                 // ascii control codes are never allowed
                 // (note that \n was checked before we got here)
                 return 1;
@@ -1234,7 +1290,7 @@ pub const Tokenizer = struct {
             // check utf8-encoded character.
             const length = std.unicode.utf8ByteSequenceLength(c0) catch return 1;
             if (self.index + length > self.buffer.len) {
-                return @intCast(u3, self.buffer.len - self.index);
+                return @as(u3, @intCast(self.buffer.len - self.index));
             }
             const bytes = self.buffer[self.index .. self.index + length];
             switch (length) {
@@ -1311,7 +1367,7 @@ test "newline in string literal" {
     try testTokenize(
         \\"
         \\"
-    , &.{ .invalid, .string_literal });
+    , &.{ .invalid, .invalid });
 }
 
 test "code point literal with unicode escapes" {
@@ -1849,6 +1905,16 @@ test "saturating operators" {
     try testTokenize("-", &.{.minus});
     try testTokenize("-|", &.{.minus_pipe});
     try testTokenize("-|=", &.{.minus_pipe_equal});
+}
+
+test "null byte before eof" {
+    try testTokenize("123 \x00 456", &.{ .number_literal, .invalid, .number_literal });
+    try testTokenize("//\x00", &.{.invalid});
+    try testTokenize("\\\\\x00", &.{ .multiline_string_literal_line, .invalid });
+    try testTokenize("\x00", &.{.invalid});
+    try testTokenize("// NUL\x00\n", &.{.invalid});
+    try testTokenize("///\x00\n", &.{ .doc_comment, .invalid });
+    try testTokenize("/// NUL\x00\n", &.{ .doc_comment, .invalid });
 }
 
 fn testTokenize(source: [:0]const u8, expected_token_tags: []const Token.Tag) !void {

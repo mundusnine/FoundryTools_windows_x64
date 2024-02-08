@@ -7,15 +7,15 @@ pub const panic = common.panic;
 
 comptime {
     if (common.want_aeabi) {
-        @export(__aeabi_dcmpeq, .{ .name = "__aeabi_dcmpeq", .linkage = common.linkage });
-        @export(__aeabi_dcmplt, .{ .name = "__aeabi_dcmplt", .linkage = common.linkage });
-        @export(__aeabi_dcmple, .{ .name = "__aeabi_dcmple", .linkage = common.linkage });
+        @export(__aeabi_dcmpeq, .{ .name = "__aeabi_dcmpeq", .linkage = common.linkage, .visibility = common.visibility });
+        @export(__aeabi_dcmplt, .{ .name = "__aeabi_dcmplt", .linkage = common.linkage, .visibility = common.visibility });
+        @export(__aeabi_dcmple, .{ .name = "__aeabi_dcmple", .linkage = common.linkage, .visibility = common.visibility });
     } else {
-        @export(__eqdf2, .{ .name = "__eqdf2", .linkage = common.linkage });
-        @export(__nedf2, .{ .name = "__nedf2", .linkage = common.linkage });
-        @export(__ledf2, .{ .name = "__ledf2", .linkage = common.linkage });
-        @export(__cmpdf2, .{ .name = "__cmpdf2", .linkage = common.linkage });
-        @export(__ltdf2, .{ .name = "__ltdf2", .linkage = common.linkage });
+        @export(__eqdf2, .{ .name = "__eqdf2", .linkage = common.linkage, .visibility = common.visibility });
+        @export(__nedf2, .{ .name = "__nedf2", .linkage = common.linkage, .visibility = common.visibility });
+        @export(__ledf2, .{ .name = "__ledf2", .linkage = common.linkage, .visibility = common.visibility });
+        @export(__cmpdf2, .{ .name = "__cmpdf2", .linkage = common.linkage, .visibility = common.visibility });
+        @export(__ltdf2, .{ .name = "__ltdf2", .linkage = common.linkage, .visibility = common.visibility });
     }
 }
 
@@ -26,7 +26,7 @@ comptime {
 /// Note that this matches the definition of `__ledf2`, `__eqdf2`, `__nedf2`, `__cmpdf2`,
 /// and `__ltdf2`.
 fn __cmpdf2(a: f64, b: f64) callconv(.C) i32 {
-    return @enumToInt(comparef.cmpf2(f64, comparef.LE, a, b));
+    return @intFromEnum(comparef.cmpf2(f64, comparef.LE, a, b));
 }
 
 /// "These functions return a value less than or equal to zero if neither argument is NaN,
@@ -56,13 +56,13 @@ pub fn __ltdf2(a: f64, b: f64) callconv(.C) i32 {
 }
 
 fn __aeabi_dcmpeq(a: f64, b: f64) callconv(.AAPCS) i32 {
-    return @boolToInt(comparef.cmpf2(f64, comparef.LE, a, b) == .Equal);
+    return @intFromBool(comparef.cmpf2(f64, comparef.LE, a, b) == .Equal);
 }
 
 fn __aeabi_dcmplt(a: f64, b: f64) callconv(.AAPCS) i32 {
-    return @boolToInt(comparef.cmpf2(f64, comparef.LE, a, b) == .Less);
+    return @intFromBool(comparef.cmpf2(f64, comparef.LE, a, b) == .Less);
 }
 
 fn __aeabi_dcmple(a: f64, b: f64) callconv(.AAPCS) i32 {
-    return @boolToInt(comparef.cmpf2(f64, comparef.LE, a, b) != .Greater);
+    return @intFromBool(comparef.cmpf2(f64, comparef.LE, a, b) != .Greater);
 }

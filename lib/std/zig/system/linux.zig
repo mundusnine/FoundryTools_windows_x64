@@ -84,20 +84,20 @@ const PowerpcCpuinfoImpl = struct {
         .{ "7410", &Target.powerpc.cpu.@"7400" },
         .{ "7447", &Target.powerpc.cpu.@"7400" },
         .{ "7455", &Target.powerpc.cpu.@"7450" },
-        .{ "G4", &Target.powerpc.cpu.@"g4" },
+        .{ "G4", &Target.powerpc.cpu.g4 },
         .{ "POWER4", &Target.powerpc.cpu.@"970" },
         .{ "PPC970FX", &Target.powerpc.cpu.@"970" },
         .{ "PPC970MP", &Target.powerpc.cpu.@"970" },
-        .{ "G5", &Target.powerpc.cpu.@"g5" },
-        .{ "POWER5", &Target.powerpc.cpu.@"g5" },
-        .{ "A2", &Target.powerpc.cpu.@"a2" },
-        .{ "POWER6", &Target.powerpc.cpu.@"pwr6" },
-        .{ "POWER7", &Target.powerpc.cpu.@"pwr7" },
-        .{ "POWER8", &Target.powerpc.cpu.@"pwr8" },
-        .{ "POWER8E", &Target.powerpc.cpu.@"pwr8" },
-        .{ "POWER8NVL", &Target.powerpc.cpu.@"pwr8" },
-        .{ "POWER9", &Target.powerpc.cpu.@"pwr9" },
-        .{ "POWER10", &Target.powerpc.cpu.@"pwr10" },
+        .{ "G5", &Target.powerpc.cpu.g5 },
+        .{ "POWER5", &Target.powerpc.cpu.g5 },
+        .{ "A2", &Target.powerpc.cpu.a2 },
+        .{ "POWER6", &Target.powerpc.cpu.pwr6 },
+        .{ "POWER7", &Target.powerpc.cpu.pwr7 },
+        .{ "POWER8", &Target.powerpc.cpu.pwr8 },
+        .{ "POWER8E", &Target.powerpc.cpu.pwr8 },
+        .{ "POWER8NVL", &Target.powerpc.cpu.pwr8 },
+        .{ "POWER9", &Target.powerpc.cpu.pwr9 },
+        .{ "POWER10", &Target.powerpc.cpu.pwr10 },
     };
 
     fn line_hook(self: *PowerpcCpuinfoImpl, key: []const u8, value: []const u8) !bool {
@@ -147,7 +147,9 @@ test "cpuinfo: PowerPC" {
 }
 
 const ArmCpuinfoImpl = struct {
-    cores: [4]CoreInfo = undefined,
+    const num_cores = 4;
+
+    cores: [num_cores]CoreInfo = undefined,
     core_no: usize = 0,
     have_fields: usize = 0,
 
@@ -162,7 +164,7 @@ const ArmCpuinfoImpl = struct {
     const cpu_models = @import("arm.zig").cpu_models;
 
     fn addOne(self: *ArmCpuinfoImpl) void {
-        if (self.have_fields == 4 and self.core_no < self.cores.len) {
+        if (self.have_fields == 4 and self.core_no < num_cores) {
             if (self.core_no > 0) {
                 // Deduplicate the core info.
                 for (self.cores[0..self.core_no]) |it| {
@@ -222,8 +224,8 @@ const ArmCpuinfoImpl = struct {
             else => false,
         };
 
-        var known_models: [self.cores.len]?*const Target.Cpu.Model = undefined;
-        for (self.cores[0..self.core_no]) |core, i| {
+        var known_models: [num_cores]?*const Target.Cpu.Model = undefined;
+        for (self.cores[0..self.core_no], 0..) |core, i| {
             known_models[i] = cpu_models.isKnown(.{
                 .architecture = core.architecture,
                 .implementer = core.implementer,

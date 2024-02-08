@@ -1,6 +1,7 @@
 const std = @import("std.zig");
 const assert = std.debug.assert;
 const testing = std.testing;
+const mem = std.mem;
 const Allocator = std.mem.Allocator;
 
 // Imagine that `fn at(self: *Self, index: usize) &T` is a customer asking for a box
@@ -106,7 +107,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
         }
 
         pub fn deinit(self: *Self, allocator: Allocator) void {
-            self.freeShelves(allocator, @intCast(ShelfIndex, self.dynamic_segments.len), 0);
+            self.freeShelves(allocator, @as(ShelfIndex, @intCast(self.dynamic_segments.len)), 0);
             allocator.free(self.dynamic_segments);
             self.* = undefined;
         }
@@ -170,34 +171,42 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
         /// TODO update this and related methods to match the conventions set by ArrayList
         pub fn setCapacity(self: *Self, allocator: Allocator, new_capacity: usize) Allocator.Error!void {
             if (prealloc_item_count != 0) {
-                if (new_capacity <= @as(usize, 1) << (prealloc_exp + @intCast(ShelfIndex, self.dynamic_segments.len))) {
+                if (new_capacity <= @as(usize, 1) << (prealloc_exp + @as(ShelfIndex, @intCast(self.dynamic_segments.len)))) {
                     return self.shrinkCapacity(allocator, new_capacity);
                 }
             }
             return self.growCapacity(allocator, new_capacity);
         }
 
-        /// Only grows capacity, or retains current capacity
+        /// Only grows capacity, or retains current capacity.
         pub fn growCapacity(self: *Self, allocator: Allocator, new_capacity: usize) Allocator.Error!void {
             const new_cap_shelf_count = shelfCount(new_capacity);
-            const old_shelf_count = @intCast(ShelfIndex, self.dynamic_segments.len);
-            if (new_cap_shelf_count > old_shelf_count) {
-                self.dynamic_segments = try allocator.realloc(self.dynamic_segments, new_cap_shelf_count);
-                var i = old_shelf_count;
-                errdefer {
-                    self.freeShelves(allocator, i, old_shelf_count);
-                    self.dynamic_segments = allocator.shrink(self.dynamic_segments, old_shelf_count);
-                }
-                while (i < new_cap_shelf_count) : (i += 1) {
-                    self.dynamic_segments[i] = (try allocator.alloc(T, shelfSize(i))).ptr;
-                }
+            const old_shelf_count = @as(ShelfIndex, @intCast(self.dynamic_segments.len));
+            if (new_cap_shelf_count <= old_shelf_count) return;
+
+            const new_dynamic_segments = try allocator.alloc([*]T, new_cap_shelf_count);
+            errdefer allocator.free(new_dynamic_segments);
+
+            var i: ShelfIndex = 0;
+            while (i < old_shelf_count) : (i += 1) {
+                new_dynamic_segments[i] = self.dynamic_segments[i];
             }
+            errdefer while (i > old_shelf_count) : (i -= 1) {
+                allocator.free(new_dynamic_segments[i][0..shelfSize(i)]);
+            };
+            while (i < new_cap_shelf_count) : (i += 1) {
+                new_dynamic_segments[i] = (try allocator.alloc(T, shelfSize(i))).ptr;
+            }
+
+            allocator.free(self.dynamic_segments);
+            self.dynamic_segments = new_dynamic_segments;
         }
 
-        /// Only shrinks capacity or retains current capacity
+        /// Only shrinks capacity or retains current capacity.
+        /// It may fail to reduce the capacity in which case the capacity will remain unchanged.
         pub fn shrinkCapacity(self: *Self, allocator: Allocator, new_capacity: usize) void {
             if (new_capacity <= prealloc_item_count) {
-                const len = @intCast(ShelfIndex, self.dynamic_segments.len);
+                const len = @as(ShelfIndex, @intCast(self.dynamic_segments.len));
                 self.freeShelves(allocator, len, 0);
                 allocator.free(self.dynamic_segments);
                 self.dynamic_segments = &[_][*]T{};
@@ -205,14 +214,26 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
             }
 
             const new_cap_shelf_count = shelfCount(new_capacity);
-            const old_shelf_count = @intCast(ShelfIndex, self.dynamic_segments.len);
+            const old_shelf_count = @as(ShelfIndex, @intCast(self.dynamic_segments.len));
             assert(new_cap_shelf_count <= old_shelf_count);
-            if (new_cap_shelf_count == old_shelf_count) {
-                return;
-            }
+            if (new_cap_shelf_count == old_shelf_count) return;
 
+            // freeShelves() must be called before resizing the dynamic
+            // segments, but we don't know if resizing the dynamic segments
+            // will work until we try it. So we must allocate a fresh memory
+            // buffer in order to reduce capacity.
+            const new_dynamic_segments = allocator.alloc([*]T, new_cap_shelf_count) catch return;
             self.freeShelves(allocator, old_shelf_count, new_cap_shelf_count);
-            self.dynamic_segments = allocator.shrink(self.dynamic_segments, new_cap_shelf_count);
+            if (allocator.resize(self.dynamic_segments, new_cap_shelf_count)) {
+                // We didn't need the new memory allocation after all.
+                self.dynamic_segments = self.dynamic_segments[0..new_cap_shelf_count];
+                allocator.free(new_dynamic_segments);
+            } else {
+                // Good thing we allocated that new memory slice.
+                @memcpy(new_dynamic_segments, self.dynamic_segments[0..new_cap_shelf_count]);
+                allocator.free(self.dynamic_segments);
+                self.dynamic_segments = new_dynamic_segments;
+            }
         }
 
         pub fn shrink(self: *Self, new_len: usize) void {
@@ -227,24 +248,21 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
 
             var i = start;
             if (end <= prealloc_item_count) {
-                std.mem.copy(T, dest[i - start ..], self.prealloc_segment[i..end]);
+                const src = self.prealloc_segment[i..end];
+                @memcpy(dest[i - start ..][0..src.len], src);
                 return;
             } else if (i < prealloc_item_count) {
-                std.mem.copy(T, dest[i - start ..], self.prealloc_segment[i..]);
+                const src = self.prealloc_segment[i..];
+                @memcpy(dest[i - start ..][0..src.len], src);
                 i = prealloc_item_count;
             }
 
             while (i < end) {
                 const shelf_index = shelfIndex(i);
                 const copy_start = boxIndex(i, shelf_index);
-                const copy_end = std.math.min(shelfSize(shelf_index), copy_start + end - i);
-
-                std.mem.copy(
-                    T,
-                    dest[i - start ..],
-                    self.dynamic_segments[shelf_index][copy_start..copy_end],
-                );
-
+                const copy_end = @min(shelfSize(shelf_index), copy_start + end - i);
+                const src = self.dynamic_segments[shelf_index][copy_start..copy_end];
+                @memcpy(dest[i - start ..][0..src.len], src);
                 i += (copy_end - copy_start);
             }
         }
@@ -391,10 +409,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
 }
 
 test "SegmentedList basic usage" {
-    if (@import("builtin").zig_backend == .stage1) {
-        // https://github.com/ziglang/zig/issues/11787
-        try testSegmentedList(0);
-    }
+    try testSegmentedList(0);
     try testSegmentedList(1);
     try testSegmentedList(2);
     try testSegmentedList(4);
@@ -409,7 +424,7 @@ fn testSegmentedList(comptime prealloc: usize) !void {
     {
         var i: usize = 0;
         while (i < 100) : (i += 1) {
-            try list.append(testing.allocator, @intCast(i32, i + 1));
+            try list.append(testing.allocator, @as(i32, @intCast(i + 1)));
             try testing.expect(list.len == i + 1);
         }
     }
@@ -417,7 +432,7 @@ fn testSegmentedList(comptime prealloc: usize) !void {
     {
         var i: usize = 0;
         while (i < 100) : (i += 1) {
-            try testing.expect(list.at(i).* == @intCast(i32, i + 1));
+            try testing.expect(list.at(i).* == @as(i32, @intCast(i + 1)));
         }
     }
 
@@ -477,16 +492,16 @@ fn testSegmentedList(comptime prealloc: usize) !void {
         var i: i32 = 0;
         while (i < 100) : (i += 1) {
             try list.append(testing.allocator, i + 1);
-            control[@intCast(usize, i)] = i + 1;
+            control[@as(usize, @intCast(i))] = i + 1;
         }
 
-        std.mem.set(i32, dest[0..], 0);
+        @memset(dest[0..], 0);
         list.writeToSlice(dest[0..], 0);
-        try testing.expect(std.mem.eql(i32, control[0..], dest[0..]));
+        try testing.expect(mem.eql(i32, control[0..], dest[0..]));
 
-        std.mem.set(i32, dest[0..], 0);
+        @memset(dest[0..], 0);
         list.writeToSlice(dest[50..], 50);
-        try testing.expect(std.mem.eql(i32, control[50..], dest[50..]));
+        try testing.expect(mem.eql(i32, control[50..], dest[50..]));
     }
 
     try list.setCapacity(testing.allocator, 0);

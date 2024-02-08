@@ -154,7 +154,6 @@ pub fn isExtern(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         .Struct => |s| s.layout == .Extern,
         .Union => |u| u.layout == .Extern,
-        .Enum => |e| e.layout == .Extern,
         else => false,
     };
 }
@@ -172,7 +171,6 @@ pub fn isPacked(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         .Struct => |s| s.layout == .Packed,
         .Union => |u| u.layout == .Packed,
-        .Enum => |e| e.layout == .Packed,
         else => false,
     };
 }
@@ -224,8 +222,8 @@ pub fn isSingleItemPtr(comptime T: type) bool {
 
 test "isSingleItemPtr" {
     const array = [_]u8{0} ** 10;
-    comptime try testing.expect(isSingleItemPtr(@TypeOf(&array[0])));
-    comptime try testing.expect(!isSingleItemPtr(@TypeOf(array)));
+    try comptime testing.expect(isSingleItemPtr(@TypeOf(&array[0])));
+    try comptime testing.expect(!isSingleItemPtr(@TypeOf(array)));
     var runtime_zero: usize = 0;
     try testing.expect(!isSingleItemPtr(@TypeOf(array[runtime_zero..1])));
 }
@@ -239,7 +237,7 @@ pub fn isManyItemPtr(comptime T: type) bool {
 
 test "isManyItemPtr" {
     const array = [_]u8{0} ** 10;
-    const mip = @ptrCast([*]const u8, &array[0]);
+    const mip = @as([*]const u8, @ptrCast(&array[0]));
     try testing.expect(isManyItemPtr(@TypeOf(mip)));
     try testing.expect(!isManyItemPtr(@TypeOf(array)));
     try testing.expect(!isManyItemPtr(@TypeOf(array[0..1])));
@@ -273,7 +271,7 @@ pub fn isIndexable(comptime T: type) bool {
 test "isIndexable" {
     const array = [_]u8{0} ** 10;
     const slice = @as([]const u8, &array);
-    const vector: meta.Vector(2, u32) = [_]u32{0} ** 2;
+    const vector: @Vector(2, u32) = [_]u32{0} ** 2;
     const tuple = .{ 1, 2, 3 };
 
     try testing.expect(isIndexable(@TypeOf(array)));
@@ -402,18 +400,18 @@ test "isTuple" {
 /// *const u8, ?[]const u8, ?*const [N]u8.
 /// ```
 pub fn isZigString(comptime T: type) bool {
-    comptime {
+    return comptime blk: {
         // Only pointer types can be strings, no optionals
         const info = @typeInfo(T);
-        if (info != .Pointer) return false;
+        if (info != .Pointer) break :blk false;
 
         const ptr = &info.Pointer;
         // Check for CV qualifiers that would prevent coerction to []const u8
-        if (ptr.is_volatile or ptr.is_allowzero) return false;
+        if (ptr.is_volatile or ptr.is_allowzero) break :blk false;
 
         // If it's already a slice, simple check.
         if (ptr.size == .Slice) {
-            return ptr.child == u8;
+            break :blk ptr.child == u8;
         }
 
         // Otherwise check if it's an array type that coerces to slice.
@@ -421,12 +419,12 @@ pub fn isZigString(comptime T: type) bool {
             const child = @typeInfo(ptr.child);
             if (child == .Array) {
                 const arr = &child.Array;
-                return arr.child == u8;
+                break :blk arr.child == u8;
             }
         }
 
-        return false;
-    }
+        break :blk false;
+    };
 }
 
 test "isZigString" {
@@ -549,7 +547,6 @@ pub fn hasUniqueRepresentation(comptime T: type) bool {
         else => return false, // TODO can we know if it's true for some of these types ?
 
         .AnyFrame,
-        .BoundFn,
         .Enum,
         .ErrorSet,
         .Fn,
@@ -567,7 +564,7 @@ pub fn hasUniqueRepresentation(comptime T: type) bool {
             var sum_size = @as(usize, 0);
 
             inline for (info.fields) |field| {
-                const FieldType = field.field_type;
+                const FieldType = field.type;
                 if (comptime !hasUniqueRepresentation(FieldType)) return false;
                 sum_size += @sizeOf(FieldType);
             }

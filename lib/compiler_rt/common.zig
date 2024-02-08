@@ -1,7 +1,13 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const native_endian = builtin.cpu.arch.endian();
 
 pub const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+/// Determines the symbol's visibility to other objects.
+/// For WebAssembly this allows the symbol to be resolved to other modules, but will not
+/// export it to the host runtime.
+pub const visibility: std.builtin.SymbolVisibility =
+    if (builtin.target.isWasm() and linkage != .Internal) .hidden else .default;
 pub const want_aeabi = switch (builtin.abi) {
     .eabi,
     .eabihf,
@@ -20,7 +26,7 @@ pub const want_ppc_abi = builtin.cpu.arch.isPPC() or builtin.cpu.arch.isPPC64();
 
 // Libcalls that involve u128 on Windows x86-64 are expected by LLVM to use the
 // calling convention of @Vector(2, u64), rather than what's standard.
-pub const want_windows_v2u64_abi = builtin.os.tag == .windows and builtin.cpu.arch == .x86_64;
+pub const want_windows_v2u64_abi = builtin.os.tag == .windows and builtin.cpu.arch == .x86_64 and @import("builtin").object_format != .c;
 
 /// This governs whether to use these symbol names for f16/f32 conversions
 /// rather than the standard names:
@@ -48,7 +54,7 @@ pub const gnu_f16_abi = switch (builtin.cpu.arch) {
     .x86_64,
     => false,
 
-    .i386 => true,
+    .x86 => true,
 
     .arm, .armeb, .thumb, .thumbeb => switch (builtin.abi) {
         .eabi, .eabihf => false,
@@ -76,34 +82,42 @@ pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, _: ?
 /// need for extending them to wider fp types.
 /// TODO remove this; do this type selection in the language rather than
 /// here in compiler-rt.
-pub const F16T = switch (builtin.cpu.arch) {
-    .aarch64, .aarch64_be, .aarch64_32 => f16,
-    .riscv64 => if (builtin.zig_backend == .stage1) u16 else f16,
-    .i386, .x86_64 => f16,
-    else => u16,
-};
+pub fn F16T(comptime other_type: type) type {
+    return switch (builtin.cpu.arch) {
+        .aarch64, .aarch64_be, .aarch64_32 => f16,
+        .riscv64 => if (builtin.zig_backend == .stage1) u16 else f16,
+        .x86, .x86_64 => if (builtin.target.isDarwin()) switch (other_type) {
+            // Starting with LLVM 16, Darwin uses different abi for f16
+            // depending on the type of the other return/argument..???
+            f32, f64 => u16,
+            f80, f128 => f16,
+            else => unreachable,
+        } else f16,
+        else => u16,
+    };
+}
 
 pub fn wideMultiply(comptime Z: type, a: Z, b: Z, hi: *Z, lo: *Z) void {
     switch (Z) {
         u16 => {
             // 16x16 --> 32 bit multiply
             const product = @as(u32, a) * @as(u32, b);
-            hi.* = @intCast(u16, product >> 16);
-            lo.* = @truncate(u16, product);
+            hi.* = @as(u16, @intCast(product >> 16));
+            lo.* = @as(u16, @truncate(product));
         },
         u32 => {
             // 32x32 --> 64 bit multiply
             const product = @as(u64, a) * @as(u64, b);
-            hi.* = @truncate(u32, product >> 32);
-            lo.* = @truncate(u32, product);
+            hi.* = @as(u32, @truncate(product >> 32));
+            lo.* = @as(u32, @truncate(product));
         },
         u64 => {
             const S = struct {
                 fn loWord(x: u64) u64 {
-                    return @truncate(u32, x);
+                    return @as(u32, @truncate(x));
                 }
                 fn hiWord(x: u64) u64 {
-                    return @truncate(u32, x >> 32);
+                    return @as(u32, @truncate(x >> 32));
                 }
             };
             // 64x64 -> 128 wide multiply for platforms that don't have such an operation;
@@ -127,16 +141,16 @@ pub fn wideMultiply(comptime Z: type, a: Z, b: Z, hi: *Z, lo: *Z) void {
             const Word_FullMask = @as(u64, 0xffffffffffffffff);
             const S = struct {
                 fn Word_1(x: u128) u64 {
-                    return @truncate(u32, x >> 96);
+                    return @as(u32, @truncate(x >> 96));
                 }
                 fn Word_2(x: u128) u64 {
-                    return @truncate(u32, x >> 64);
+                    return @as(u32, @truncate(x >> 64));
                 }
                 fn Word_3(x: u128) u64 {
-                    return @truncate(u32, x >> 32);
+                    return @as(u32, @truncate(x >> 32));
                 }
                 fn Word_4(x: u128) u64 {
-                    return @truncate(u32, x);
+                    return @as(u32, @truncate(x));
                 }
             };
             // 128x128 -> 256 wide multiply for platforms that don't have such an operation;
@@ -202,7 +216,7 @@ pub fn normalize(comptime T: type, significand: *std.meta.Int(.unsigned, @typeIn
     const integerBit = @as(Z, 1) << std.math.floatFractionalBits(T);
 
     const shift = @clz(significand.*) - @clz(integerBit);
-    significand.* <<= @intCast(std.math.Log2Int(Z), shift);
+    significand.* <<= @as(std.math.Log2Int(Z), @intCast(shift));
     return @as(i32, 1) - shift;
 }
 
@@ -214,6 +228,23 @@ pub inline fn fneg(a: anytype) @TypeOf(a) {
         .bits = bits,
     } });
     const sign_bit_mask = @as(U, 1) << (bits - 1);
-    const negated = @bitCast(U, a) ^ sign_bit_mask;
-    return @bitCast(F, negated);
+    const negated = @as(U, @bitCast(a)) ^ sign_bit_mask;
+    return @as(F, @bitCast(negated));
+}
+
+/// Allows to access underlying bits as two equally sized lower and higher
+/// signed or unsigned integers.
+pub fn HalveInt(comptime T: type, comptime signed_half: bool) type {
+    return extern union {
+        pub const bits = @divExact(@typeInfo(T).Int.bits, 2);
+        pub const HalfTU = std.meta.Int(.unsigned, bits);
+        pub const HalfTS = std.meta.Int(.signed, bits);
+        pub const HalfT = if (signed_half) HalfTS else HalfTU;
+
+        all: T,
+        s: if (native_endian == .Little)
+            extern struct { low: HalfT, high: HalfT }
+        else
+            extern struct { high: HalfT, low: HalfT },
+    };
 }

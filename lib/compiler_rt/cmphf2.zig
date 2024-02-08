@@ -6,11 +6,11 @@ const comparef = @import("./comparef.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__eqhf2, .{ .name = "__eqhf2", .linkage = common.linkage });
-    @export(__nehf2, .{ .name = "__nehf2", .linkage = common.linkage });
-    @export(__lehf2, .{ .name = "__lehf2", .linkage = common.linkage });
-    @export(__cmphf2, .{ .name = "__cmphf2", .linkage = common.linkage });
-    @export(__lthf2, .{ .name = "__lthf2", .linkage = common.linkage });
+    @export(__eqhf2, .{ .name = "__eqhf2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(__nehf2, .{ .name = "__nehf2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(__lehf2, .{ .name = "__lehf2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(__cmphf2, .{ .name = "__cmphf2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(__lthf2, .{ .name = "__lthf2", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 /// "These functions calculate a <=> b. That is, if a is less than b, they return -1;
@@ -20,7 +20,7 @@ comptime {
 /// Note that this matches the definition of `__lehf2`, `__eqhf2`, `__nehf2`, `__cmphf2`,
 /// and `__lthf2`.
 fn __cmphf2(a: f16, b: f16) callconv(.C) i32 {
-    return @enumToInt(comparef.cmpf2(f16, comparef.LE, a, b));
+    return @intFromEnum(comparef.cmpf2(f16, comparef.LE, a, b));
 }
 
 /// "These functions return a value less than or equal to zero if neither argument is NaN,

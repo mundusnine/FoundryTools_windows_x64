@@ -35,7 +35,7 @@ export fn __chk_fail() callconv(.C) noreturn {
     @panic("buffer overflow detected");
 }
 
-// Emitted when targeting some architectures (eg. i386)
+// Emitted when targeting some architectures (eg. x86)
 // XXX: This symbol should be hidden
 export fn __stack_chk_fail_local() callconv(.C) noreturn {
     __stack_chk_fail();
@@ -46,7 +46,7 @@ export var __stack_chk_guard: usize = blk: {
     var buf = [1]u8{0} ** @sizeOf(usize);
     buf[@sizeOf(usize) - 1] = 255;
     buf[@sizeOf(usize) - 2] = '\n';
-    break :blk @bitCast(usize, buf);
+    break :blk @as(usize, @bitCast(buf));
 };
 
 export fn __strcpy_chk(dest: [*:0]u8, src: [*:0]const u8, dest_n: usize) callconv(.C) [*:0]u8 {

@@ -28,7 +28,7 @@ pub const MADV = linux.MADV;
 pub const MAP = struct {
     pub usingnamespace linux.MAP;
     /// Only used by libc to communicate failure.
-    pub const FAILED = @intToPtr(*anyopaque, maxInt(usize));
+    pub const FAILED = @as(*anyopaque, @ptrFromInt(maxInt(usize)));
 };
 pub const MSF = linux.MSF;
 pub const MMAP2_UNIT = linux.MMAP2_UNIT;
@@ -229,7 +229,7 @@ pub const EAI = enum(c_int) {
 pub extern "c" fn fallocate64(fd: fd_t, mode: c_int, offset: off_t, len: off_t) c_int;
 pub extern "c" fn fopen64(noalias filename: [*:0]const u8, noalias modes: [*:0]const u8) ?*FILE;
 pub extern "c" fn fstat64(fd: fd_t, buf: *Stat) c_int;
-pub extern "c" fn fstatat64(dirfd: fd_t, path: [*:0]const u8, stat_buf: *Stat, flags: u32) c_int;
+pub extern "c" fn fstatat64(dirfd: fd_t, noalias path: [*:0]const u8, noalias stat_buf: *Stat, flags: u32) c_int;
 pub extern "c" fn ftruncate64(fd: c_int, length: off_t) c_int;
 pub extern "c" fn getrlimit64(resource: rlimit_resource, rlim: *rlimit) c_int;
 pub extern "c" fn lseek64(fd: fd_t, offset: i64, whence: c_int) i64;
@@ -263,7 +263,7 @@ pub extern "c" fn inotify_rm_watch(fd: fd_t, wd: c_int) c_int;
 /// See std.elf for constants for this
 pub extern "c" fn getauxval(__type: c_ulong) c_ulong;
 
-pub const dl_iterate_phdr_callback = std.meta.FnPtr(fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int);
+pub const dl_iterate_phdr_callback = *const fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int;
 
 pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*anyopaque) c_int;
 
@@ -288,6 +288,12 @@ pub extern "c" fn signalfd(fd: fd_t, mask: *const sigset_t, flags: c_uint) c_int
 pub extern "c" fn prlimit(pid: pid_t, resource: rlimit_resource, new_limit: *const rlimit, old_limit: *rlimit) c_int;
 pub extern "c" fn posix_memalign(memptr: *?*anyopaque, alignment: usize, size: usize) c_int;
 pub extern "c" fn malloc_usable_size(?*const anyopaque) usize;
+
+pub extern "c" fn mincore(
+    addr: *align(std.mem.page_size) anyopaque,
+    length: usize,
+    vec: [*]u8,
+) c_int;
 
 pub extern "c" fn madvise(
     addr: *align(std.mem.page_size) anyopaque,
@@ -320,9 +326,7 @@ pub const pthread_rwlock_t = switch (native_abi) {
         size: [56]u8 align(@alignOf(usize)) = [_]u8{0} ** 56,
     },
 };
-pub usingnamespace if (native_abi == .android) struct {
-    pub const pthread_key_t = c_int;
-} else struct {};
+pub const pthread_key_t = c_uint;
 pub const sem_t = extern struct {
     __size: [__SIZEOF_SEM_T]u8 align(@alignOf(usize)),
 };

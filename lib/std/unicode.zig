@@ -45,22 +45,22 @@ pub fn utf8Encode(c: u21, out: []u8) !u3 {
         // - Increasing the initial shift by 6 each time
         // - Each time after the first shorten the shifted
         //   value to a max of 0b111111 (63)
-        1 => out[0] = @intCast(u8, c), // Can just do 0 + codepoint for initial range
+        1 => out[0] = @as(u8, @intCast(c)), // Can just do 0 + codepoint for initial range
         2 => {
-            out[0] = @intCast(u8, 0b11000000 | (c >> 6));
-            out[1] = @intCast(u8, 0b10000000 | (c & 0b111111));
+            out[0] = @as(u8, @intCast(0b11000000 | (c >> 6)));
+            out[1] = @as(u8, @intCast(0b10000000 | (c & 0b111111)));
         },
         3 => {
             if (0xd800 <= c and c <= 0xdfff) return error.Utf8CannotEncodeSurrogateHalf;
-            out[0] = @intCast(u8, 0b11100000 | (c >> 12));
-            out[1] = @intCast(u8, 0b10000000 | ((c >> 6) & 0b111111));
-            out[2] = @intCast(u8, 0b10000000 | (c & 0b111111));
+            out[0] = @as(u8, @intCast(0b11100000 | (c >> 12)));
+            out[1] = @as(u8, @intCast(0b10000000 | ((c >> 6) & 0b111111)));
+            out[2] = @as(u8, @intCast(0b10000000 | (c & 0b111111)));
         },
         4 => {
-            out[0] = @intCast(u8, 0b11110000 | (c >> 18));
-            out[1] = @intCast(u8, 0b10000000 | ((c >> 12) & 0b111111));
-            out[2] = @intCast(u8, 0b10000000 | ((c >> 6) & 0b111111));
-            out[3] = @intCast(u8, 0b10000000 | (c & 0b111111));
+            out[0] = @as(u8, @intCast(0b11110000 | (c >> 18)));
+            out[1] = @as(u8, @intCast(0b10000000 | ((c >> 12) & 0b111111)));
+            out[2] = @as(u8, @intCast(0b10000000 | ((c >> 6) & 0b111111)));
+            out[3] = @as(u8, @intCast(0b10000000 | (c & 0b111111)));
         },
         else => unreachable,
     }
@@ -185,7 +185,7 @@ pub fn utf8CountCodepoints(s: []const u8) !usize {
 
             switch (n) {
                 1 => {}, // ASCII, no validation needed
-                else => _ = try utf8Decode(s[i .. i + n]),
+                else => _ = try utf8Decode(s[i..][0..n]),
             }
 
             i += n;
@@ -354,13 +354,11 @@ fn testUtf16CountCodepoints() !void {
 
 test "utf16 count codepoints" {
     try testUtf16CountCodepoints();
-    // TODO stage1 error: out of bounds slice
-    if (@import("builtin").zig_backend != .stage1)
-        comptime try testUtf16CountCodepoints();
+    try comptime testUtf16CountCodepoints();
 }
 
 test "utf8 encode" {
-    comptime try testUtf8Encode();
+    try comptime testUtf8Encode();
     try testUtf8Encode();
 }
 fn testUtf8Encode() !void {
@@ -386,7 +384,7 @@ fn testUtf8Encode() !void {
 }
 
 test "utf8 encode error" {
-    comptime try testUtf8EncodeError();
+    try comptime testUtf8EncodeError();
     try testUtf8EncodeError();
 }
 fn testUtf8EncodeError() !void {
@@ -402,7 +400,7 @@ fn testErrorEncode(codePoint: u21, array: []u8, expectedErr: anyerror) !void {
 }
 
 test "utf8 iterator on ascii" {
-    comptime try testUtf8IteratorOnAscii();
+    try comptime testUtf8IteratorOnAscii();
     try testUtf8IteratorOnAscii();
 }
 fn testUtf8IteratorOnAscii() !void {
@@ -422,7 +420,7 @@ fn testUtf8IteratorOnAscii() !void {
 }
 
 test "utf8 view bad" {
-    comptime try testUtf8ViewBad();
+    try comptime testUtf8ViewBad();
     try testUtf8ViewBad();
 }
 fn testUtf8ViewBad() !void {
@@ -432,7 +430,7 @@ fn testUtf8ViewBad() !void {
 }
 
 test "utf8 view ok" {
-    comptime try testUtf8ViewOk();
+    try comptime testUtf8ViewOk();
     try testUtf8ViewOk();
 }
 fn testUtf8ViewOk() !void {
@@ -452,7 +450,7 @@ fn testUtf8ViewOk() !void {
 }
 
 test "bad utf8 slice" {
-    comptime try testBadUtf8Slice();
+    try comptime testBadUtf8Slice();
     try testBadUtf8Slice();
 }
 fn testBadUtf8Slice() !void {
@@ -463,7 +461,7 @@ fn testBadUtf8Slice() !void {
 }
 
 test "valid utf8" {
-    comptime try testValidUtf8();
+    try comptime testValidUtf8();
     try testValidUtf8();
 }
 fn testValidUtf8() !void {
@@ -482,7 +480,7 @@ fn testValidUtf8() !void {
 }
 
 test "invalid utf8 continuation bytes" {
-    comptime try testInvalidUtf8ContinuationBytes();
+    try comptime testInvalidUtf8ContinuationBytes();
     try testInvalidUtf8ContinuationBytes();
 }
 fn testInvalidUtf8ContinuationBytes() !void {
@@ -514,7 +512,7 @@ fn testInvalidUtf8ContinuationBytes() !void {
 }
 
 test "overlong utf8 codepoint" {
-    comptime try testOverlongUtf8Codepoint();
+    try comptime testOverlongUtf8Codepoint();
     try testOverlongUtf8Codepoint();
 }
 fn testOverlongUtf8Codepoint() !void {
@@ -527,7 +525,7 @@ fn testOverlongUtf8Codepoint() !void {
 }
 
 test "misc invalid utf8" {
-    comptime try testMiscInvalidUtf8();
+    try comptime testMiscInvalidUtf8();
     try testMiscInvalidUtf8();
 }
 fn testMiscInvalidUtf8() !void {
@@ -542,7 +540,7 @@ fn testMiscInvalidUtf8() !void {
 }
 
 test "utf8 iterator peeking" {
-    comptime try testUtf8Peeking();
+    try comptime testUtf8Peeking();
     try testUtf8Peeking();
 }
 
@@ -611,12 +609,7 @@ pub fn utf16leToUtf8AllocZ(allocator: mem.Allocator, utf16le: []const u16) ![:0]
         assert((utf8Encode(codepoint, result.items[out_index..]) catch unreachable) == utf8_len);
         out_index += utf8_len;
     }
-
-    const len = result.items.len;
-
-    try result.append(0);
-
-    return result.toOwnedSlice()[0..len :0];
+    return result.toOwnedSliceSentinel(0);
 }
 
 /// Asserts that the output buffer is big enough.
@@ -702,11 +695,11 @@ pub fn utf8ToUtf16LeWithNull(allocator: mem.Allocator, utf8: []const u8) ![:0]u1
     var it = view.iterator();
     while (it.nextCodepoint()) |codepoint| {
         if (codepoint < 0x10000) {
-            const short = @intCast(u16, codepoint);
+            const short = @as(u16, @intCast(codepoint));
             try result.append(mem.nativeToLittle(u16, short));
         } else {
-            const high = @intCast(u16, (codepoint - 0x10000) >> 10) + 0xD800;
-            const low = @intCast(u16, codepoint & 0x3FF) + 0xDC00;
+            const high = @as(u16, @intCast((codepoint - 0x10000) >> 10)) + 0xD800;
+            const low = @as(u16, @intCast(codepoint & 0x3FF)) + 0xDC00;
             var out: [2]u16 = undefined;
             out[0] = mem.nativeToLittle(u16, high);
             out[1] = mem.nativeToLittle(u16, low);
@@ -714,9 +707,7 @@ pub fn utf8ToUtf16LeWithNull(allocator: mem.Allocator, utf8: []const u8) ![:0]u1
         }
     }
 
-    const len = result.items.len;
-    try result.append(0);
-    return result.toOwnedSlice()[0..len :0];
+    return result.toOwnedSliceSentinel(0);
 }
 
 /// Returns index of next character. If exact fit, returned index equals output slice length.
@@ -729,12 +720,12 @@ pub fn utf8ToUtf16Le(utf16le: []u16, utf8: []const u8) !usize {
         const next_src_i = src_i + n;
         const codepoint = utf8Decode(utf8[src_i..next_src_i]) catch return error.InvalidUtf8;
         if (codepoint < 0x10000) {
-            const short = @intCast(u16, codepoint);
+            const short = @as(u16, @intCast(codepoint));
             utf16le[dest_i] = mem.nativeToLittle(u16, short);
             dest_i += 1;
         } else {
-            const high = @intCast(u16, (codepoint - 0x10000) >> 10) + 0xD800;
-            const low = @intCast(u16, codepoint & 0x3FF) + 0xDC00;
+            const high = @as(u16, @intCast((codepoint - 0x10000) >> 10)) + 0xD800;
+            const low = @as(u16, @intCast(codepoint & 0x3FF)) + 0xDC00;
             utf16le[dest_i] = mem.nativeToLittle(u16, high);
             utf16le[dest_i + 1] = mem.nativeToLittle(u16, low);
             dest_i += 2;
@@ -783,13 +774,13 @@ test "utf8ToUtf16LeWithNull" {
 
 /// Converts a UTF-8 string literal into a UTF-16LE string literal.
 pub fn utf8ToUtf16LeStringLiteral(comptime utf8: []const u8) *const [calcUtf16LeLen(utf8) catch unreachable:0]u16 {
-    comptime {
+    return comptime blk: {
         const len: usize = calcUtf16LeLen(utf8) catch |err| @compileError(err);
         var utf16le: [len:0]u16 = [_:0]u16{0} ** len;
         const utf16le_len = utf8ToUtf16Le(&utf16le, utf8[0..]) catch |err| @compileError(err);
         assert(len == utf16le_len);
-        return &utf16le;
-    }
+        break :blk &utf16le;
+    };
 }
 
 const CalcUtf16LeLenError = Utf8DecodeError || error{Utf8InvalidStartByte};
@@ -822,7 +813,7 @@ fn testCalcUtf16LeLen() !void {
 
 test "calculate utf16 string length of given utf8 string in u16" {
     try testCalcUtf16LeLen();
-    comptime try testCalcUtf16LeLen();
+    try comptime testCalcUtf16LeLen();
 }
 
 /// Print the given `utf16le` string
@@ -928,7 +919,7 @@ fn testUtf8CountCodepoints() !void {
 
 test "utf8 count codepoints" {
     try testUtf8CountCodepoints();
-    comptime try testUtf8CountCodepoints();
+    try comptime testUtf8CountCodepoints();
 }
 
 fn testUtf8ValidCodepoint() !void {
@@ -944,5 +935,5 @@ fn testUtf8ValidCodepoint() !void {
 
 test "utf8 valid codepoint" {
     try testUtf8ValidCodepoint();
-    comptime try testUtf8ValidCodepoint();
+    try comptime testUtf8ValidCodepoint();
 }

@@ -58,10 +58,10 @@ pub const uuid_command = extern struct {
     cmd: LC = .UUID,
 
     /// sizeof(struct uuid_command)
-    cmdsize: u32,
+    cmdsize: u32 = @sizeOf(uuid_command),
 
     /// the 128-bit uuid
-    uuid: [16]u8,
+    uuid: [16]u8 = undefined,
 };
 
 /// The version_min_command contains the min OS version on which this
@@ -71,7 +71,7 @@ pub const version_min_command = extern struct {
     cmd: LC,
 
     /// sizeof(struct version_min_command)
-    cmdsize: u32,
+    cmdsize: u32 = @sizeOf(version_min_command),
 
     /// X.Y.Z is encoded in nibbles xxxx.yy.zz
     version: u32,
@@ -87,7 +87,7 @@ pub const source_version_command = extern struct {
     cmd: LC = .SOURCE_VERSION,
 
     /// sizeof(source_version_command)
-    cmdsize: u32,
+    cmdsize: u32 = @sizeOf(source_version_command),
 
     /// A.B.C.D.E packed as a24.b10.c10.d10.e10
     version: u64,
@@ -143,6 +143,8 @@ pub const TOOL = enum(u32) {
     CLANG = 0x1,
     SWIFT = 0x2,
     LD = 0x3,
+    LLD = 0x4, // LLVM's stock LLD linker
+    ZIG = 0x5, // Unofficially Zig
     _,
 };
 
@@ -155,13 +157,13 @@ pub const entry_point_command = extern struct {
     cmd: LC = .MAIN,
 
     /// sizeof(struct entry_point_command)
-    cmdsize: u32,
+    cmdsize: u32 = @sizeOf(entry_point_command),
 
     /// file (__TEXT) offset of main()
-    entryoff: u64,
+    entryoff: u64 = 0,
 
     /// if not zero, initial stack size
-    stacksize: u64,
+    stacksize: u64 = 0,
 };
 
 /// The symtab_command contains the offsets and sizes of the link-edit 4.3BSD
@@ -172,19 +174,19 @@ pub const symtab_command = extern struct {
     cmd: LC = .SYMTAB,
 
     /// sizeof(struct symtab_command)
-    cmdsize: u32,
+    cmdsize: u32 = @sizeOf(symtab_command),
 
     /// symbol table offset
-    symoff: u32,
+    symoff: u32 = 0,
 
     /// number of symbol table entries
-    nsyms: u32,
+    nsyms: u32 = 0,
 
     /// string table offset
-    stroff: u32,
+    stroff: u32 = 0,
 
     /// string table size in bytes
-    strsize: u32,
+    strsize: u32 = 0,
 };
 
 /// This is the second set of the symbolic information which is used to support
@@ -230,7 +232,7 @@ pub const dysymtab_command = extern struct {
     cmd: LC = .DYSYMTAB,
 
     /// sizeof(struct dysymtab_command)
-    cmdsize: u32,
+    cmdsize: u32 = @sizeOf(dysymtab_command),
 
     // The symbols indicated by symoff and nsyms of the LC_SYMTAB load command
     // are grouped into the following three groups:
@@ -247,22 +249,22 @@ pub const dysymtab_command = extern struct {
     // table when this is a dynamically linked shared library file).
 
     /// index of local symbols
-    ilocalsym: u32,
+    ilocalsym: u32 = 0,
 
     /// number of local symbols
-    nlocalsym: u32,
+    nlocalsym: u32 = 0,
 
     /// index to externally defined symbols
-    iextdefsym: u32,
+    iextdefsym: u32 = 0,
 
     /// number of externally defined symbols
-    nextdefsym: u32,
+    nextdefsym: u32 = 0,
 
     /// index to undefined symbols
-    iundefsym: u32,
+    iundefsym: u32 = 0,
 
     /// number of undefined symbols
-    nundefsym: u32,
+    nundefsym: u32 = 0,
 
     // For the for the dynamic binding process to find which module a symbol
     // is defined in the table of contents is used (analogous to the ranlib
@@ -272,10 +274,10 @@ pub const dysymtab_command = extern struct {
     // symbols are sorted by name and is use as the table of contents.
 
     /// file offset to table of contents
-    tocoff: u32,
+    tocoff: u32 = 0,
 
     /// number of entries in table of contents
-    ntoc: u32,
+    ntoc: u32 = 0,
 
     // To support dynamic binding of "modules" (whole object files) the symbol
     // table must reflect the modules that the file was created from.  This is
@@ -286,10 +288,10 @@ pub const dysymtab_command = extern struct {
     // contains one module so everything in the file belongs to the module.
 
     /// file offset to module table
-    modtaboff: u32,
+    modtaboff: u32 = 0,
 
     /// number of module table entries
-    nmodtab: u32,
+    nmodtab: u32 = 0,
 
     // To support dynamic module binding the module structure for each module
     // indicates the external references (defined and undefined) each module
@@ -300,10 +302,10 @@ pub const dysymtab_command = extern struct {
     // undefined external symbols indicates the external references.
 
     /// offset to referenced symbol table
-    extrefsymoff: u32,
+    extrefsymoff: u32 = 0,
 
     /// number of referenced symbol table entries
-    nextrefsyms: u32,
+    nextrefsyms: u32 = 0,
 
     // The sections that contain "symbol pointers" and "routine stubs" have
     // indexes and (implied counts based on the size of the section and fixed
@@ -315,10 +317,10 @@ pub const dysymtab_command = extern struct {
     // The indirect symbol table is ordered to match the entries in the section.
 
     /// file offset to the indirect symbol table
-    indirectsymoff: u32,
+    indirectsymoff: u32 = 0,
 
     /// number of indirect symbol table entries
-    nindirectsyms: u32,
+    nindirectsyms: u32 = 0,
 
     // To support relocating an individual module in a library file quickly the
     // external relocation entries for each module in the library need to be
@@ -347,20 +349,20 @@ pub const dysymtab_command = extern struct {
     // remaining relocation entries must be local).
 
     /// offset to external relocation entries
-    extreloff: u32,
+    extreloff: u32 = 0,
 
     /// number of external relocation entries
-    nextrel: u32,
+    nextrel: u32 = 0,
 
     // All the local relocation entries are grouped together (they are not
     // grouped by their module since they are only used if the object is moved
-    // from it staticly link edited address).
+    // from its statically link edited address).
 
     /// offset to local relocation entries
-    locreloff: u32,
+    locreloff: u32 = 0,
 
     /// number of local relocation entries
-    nlocrel: u32,
+    nlocrel: u32 = 0,
 };
 
 /// The linkedit_data_command contains the offsets and sizes of a blob
@@ -370,13 +372,13 @@ pub const linkedit_data_command = extern struct {
     cmd: LC,
 
     /// sizeof(struct linkedit_data_command)
-    cmdsize: u32,
+    cmdsize: u32 = @sizeOf(linkedit_data_command),
 
     /// file offset of data in __LINKEDIT segment
-    dataoff: u32,
+    dataoff: u32 = 0,
 
     /// file size of data in __LINKEDIT segment
-    datasize: u32,
+    datasize: u32 = 0,
 };
 
 /// The dyld_info_command contains the file offsets and sizes of
@@ -387,10 +389,10 @@ pub const linkedit_data_command = extern struct {
 /// to interpret it.
 pub const dyld_info_command = extern struct {
     /// LC_DYLD_INFO or LC_DYLD_INFO_ONLY
-    cmd: LC,
+    cmd: LC = .DYLD_INFO_ONLY,
 
     /// sizeof(struct dyld_info_command)
-    cmdsize: u32,
+    cmdsize: u32 = @sizeOf(dyld_info_command),
 
     // Dyld rebases an image whenever dyld loads it at an address different
     // from its preferred address.  The rebase information is a stream
@@ -403,10 +405,10 @@ pub const dyld_info_command = extern struct {
     // bytes.
 
     /// file offset to rebase info
-    rebase_off: u32,
+    rebase_off: u32 = 0,
 
     /// size of rebase info
-    rebase_size: u32,
+    rebase_size: u32 = 0,
 
     // Dyld binds an image during the loading process, if the image
     // requires any pointers to be initialized to symbols in other images.
@@ -416,14 +418,14 @@ pub const dyld_info_command = extern struct {
     //    <seg-index, seg-offset, type, symbol-library-ordinal, symbol-name, addend>
     // The opcodes are a compressed way to encode the table by only
     // encoding when a column changes.  In addition simple patterns
-    // like for runs of pointers initialzed to the same value can be
+    // like for runs of pointers initialized to the same value can be
     // encoded in a few bytes.
 
     /// file offset to binding info
-    bind_off: u32,
+    bind_off: u32 = 0,
 
     /// size of binding info
-    bind_size: u32,
+    bind_size: u32 = 0,
 
     // Some C++ programs require dyld to unique symbols so that all
     // images in the process use the same copy of some code/data.
@@ -440,10 +442,10 @@ pub const dyld_info_command = extern struct {
     // and the call to operator new is then rebound.
 
     /// file offset to weak binding info
-    weak_bind_off: u32,
+    weak_bind_off: u32 = 0,
 
     /// size of weak binding info
-    weak_bind_size: u32,
+    weak_bind_size: u32 = 0,
 
     // Some uses of external symbols do not need to be bound immediately.
     // Instead they can be lazily bound on first use.  The lazy_bind
@@ -457,10 +459,10 @@ pub const dyld_info_command = extern struct {
     // to bind.
 
     /// file offset to lazy binding info
-    lazy_bind_off: u32,
+    lazy_bind_off: u32 = 0,
 
     /// size of lazy binding info
-    lazy_bind_size: u32,
+    lazy_bind_size: u32 = 0,
 
     // The symbols exported by a dylib are encoded in a trie.  This
     // is a compact representation that factors out common prefixes.
@@ -494,10 +496,10 @@ pub const dyld_info_command = extern struct {
     // edge points to.
 
     /// file offset to lazy binding info
-    export_off: u32,
+    export_off: u32 = 0,
 
     /// size of lazy binding info
-    export_size: u32,
+    export_size: u32 = 0,
 };
 
 /// A program that uses a dynamic linker contains a dylinker_command to identify
@@ -538,13 +540,13 @@ pub const dylib_command = extern struct {
     dylib: dylib,
 };
 
-/// Dynamicaly linked shared libraries are identified by two things.  The
+/// Dynamically linked shared libraries are identified by two things.  The
 /// pathname (the name of the library as found for execution), and the
 /// compatibility version number.  The pathname must match and the compatibility
 /// number in the user of the library must be greater than or equal to the
 /// library being used.  The time stamp is used to record the time a library was
 /// built and copied into user so it can be use to determined if the library used
-/// at runtime is exactly the same as used to built the program.
+/// at runtime is exactly the same as used to build the program.
 pub const dylib = extern struct {
     /// library's pathname (offset pointing at the end of dylib_command)
     name: u32,
@@ -656,6 +658,10 @@ pub const segment_command_64 = extern struct {
     pub fn segName(seg: *const segment_command_64) []const u8 {
         return parseName(&seg.segname);
     }
+
+    pub fn isWriteable(seg: segment_command_64) bool {
+        return seg.initprot & PROT.WRITE != 0;
+    }
 };
 
 pub const PROT = struct {
@@ -700,7 +706,7 @@ pub const PROT = struct {
 /// The format of the relocation entries referenced by the reloff and nreloc
 /// fields of the section structure for mach object files is described in the
 /// header file <reloc.h>.
-pub const @"section" = extern struct {
+pub const section = extern struct {
     /// name of this section
     sectname: [16]u8,
 
@@ -781,7 +787,7 @@ pub const section_64 = extern struct {
     }
 
     pub fn @"type"(sect: section_64) u8 {
-        return @truncate(u8, sect.flags & 0xff);
+        return @as(u8, @truncate(sect.flags & 0xff));
     }
 
     pub fn attrs(sect: section_64) u32 {
@@ -794,12 +800,12 @@ pub const section_64 = extern struct {
     }
 
     pub fn isZerofill(sect: section_64) bool {
-        const tt = sect.@"type"();
+        const tt = sect.type();
         return tt == S_ZEROFILL or tt == S_GB_ZEROFILL or tt == S_THREAD_LOCAL_ZEROFILL;
     }
 
     pub fn isSymbolStubs(sect: section_64) bool {
-        const tt = sect.@"type"();
+        const tt = sect.type();
         return tt == S_SYMBOL_STUBS;
     }
 
@@ -1135,7 +1141,7 @@ pub const MH_NOUNDEFS = 0x1;
 /// the object file is the output of an incremental link against a base file and can't be link edited again
 pub const MH_INCRLINK = 0x2;
 
-/// the object file is input for the dynamic linker and can't be staticly link edited again
+/// the object file is input for the dynamic linker and can't be statically link edited again
 pub const MH_DYLDLINK = 0x4;
 
 /// the object file's undefined references are bound by the dynamic linker when loaded.
@@ -1156,7 +1162,7 @@ pub const MH_TWOLEVEL = 0x80;
 /// the executable is forcing all images to use flat name space bindings
 pub const MH_FORCE_FLAT = 0x100;
 
-/// this umbrella guarantees no multiple defintions of symbols in its sub-images so the two-level namespace hints can always be used.
+/// this umbrella guarantees no multiple definitions of symbols in its sub-images so the two-level namespace hints can always be used.
 pub const MH_NOMULTIDEFS = 0x200;
 
 /// do not have dyld notify the prebinding agent about this executable
@@ -1201,7 +1207,7 @@ pub const MH_DEAD_STRIPPABLE_DYLIB = 0x400000;
 /// Contains a section of type S_THREAD_LOCAL_VARIABLES
 pub const MH_HAS_TLV_DESCRIPTORS = 0x800000;
 
-/// When this bit is set, the OS will run the main executable with a non-executable heap even on platforms (e.g. i386) that don't require it. Only used in MH_EXECUTE filetypes.
+/// When this bit is set, the OS will run the main executable with a non-executable heap even on platforms (e.g. x86) that don't require it. Only used in MH_EXECUTE filetypes.
 pub const MH_NO_HEAP_EXECUTION = 0x1000000;
 
 /// The code was linked for use in an application extension.
@@ -1444,7 +1450,7 @@ pub const S_ATTR_NO_DEAD_STRIP = 0x10000000;
 /// blocks are live if they reference live blocks
 pub const S_ATTR_LIVE_SUPPORT = 0x8000000;
 
-/// used with i386 code stubs written on by dyld
+/// used with x86 code stubs written on by dyld
 pub const S_ATTR_SELF_MODIFYING_CODE = 0x4000000;
 
 /// section contains some machine instructions
@@ -1652,7 +1658,7 @@ pub const EXPORT_SYMBOL_FLAGS_REEXPORT: u8 = 0x08;
 pub const EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER: u8 = 0x10;
 
 // An indirect symbol table entry is simply a 32bit index into the symbol table
-// to the symbol that the pointer or stub is refering to.  Unless it is for a
+// to the symbol that the pointer or stub is referring to.  Unless it is for a
 // non-lazy symbol pointer section for a defined symbol which strip(1) as
 // removed.  In which case it has the value INDIRECT_SYMBOL_LOCAL.  If the
 // symbol was also absolute INDIRECT_SYMBOL_ABS is or'ed with that.
@@ -1735,7 +1741,7 @@ pub const CS_LINKER_SIGNED: u32 = 0x20000;
 
 pub const CS_EXECSEG_MAIN_BINARY: u32 = 0x1;
 
-/// This CodeDirectory is tailored specfically at version 0x20400.
+/// This CodeDirectory is tailored specifically at version 0x20400.
 pub const CodeDirectory = extern struct {
     /// Magic number (CSMAGIC_CODEDIRECTORY)
     magic: u32,
@@ -1804,7 +1810,7 @@ pub const CodeDirectory = extern struct {
 /// Structure of an embedded-signature SuperBlob
 pub const BlobIndex = extern struct {
     /// Type of entry
-    @"type": u32,
+    type: u32,
 
     /// Offset of entry
     offset: u32,
@@ -1864,7 +1870,7 @@ pub const LoadCommandIterator = struct {
 
         pub fn cast(lc: LoadCommand, comptime Cmd: type) ?Cmd {
             if (lc.data.len < @sizeOf(Cmd)) return null;
-            return @ptrCast(*const Cmd, @alignCast(@alignOf(Cmd), &lc.data[0])).*;
+            return @as(*const Cmd, @ptrCast(@alignCast(&lc.data[0]))).*;
         }
 
         /// Asserts LoadCommand is of type segment_command_64.
@@ -1872,9 +1878,9 @@ pub const LoadCommandIterator = struct {
             const segment_lc = lc.cast(segment_command_64).?;
             if (segment_lc.nsects == 0) return &[0]section_64{};
             const data = lc.data[@sizeOf(segment_command_64)..];
-            const sections = @ptrCast(
+            const sections = @as(
                 [*]const section_64,
-                @alignCast(@alignOf(section_64), &data[0]),
+                @ptrCast(@alignCast(&data[0])),
             )[0..segment_lc.nsects];
             return sections;
         }
@@ -1897,16 +1903,16 @@ pub const LoadCommandIterator = struct {
     pub fn next(it: *LoadCommandIterator) ?LoadCommand {
         if (it.index >= it.ncmds) return null;
 
-        const hdr = @ptrCast(
+        const hdr = @as(
             *const load_command,
-            @alignCast(@alignOf(load_command), &it.buffer[0]),
+            @ptrCast(@alignCast(&it.buffer[0])),
         ).*;
         const cmd = LoadCommand{
             .hdr = hdr,
             .data = it.buffer[0..hdr.cmdsize],
         };
 
-        it.buffer = @alignCast(@alignOf(u64), it.buffer[hdr.cmdsize..]);
+        it.buffer = @alignCast(it.buffer[hdr.cmdsize..]);
         it.index += 1;
 
         return cmd;
@@ -1931,8 +1937,6 @@ pub const compact_unwind_entry = extern struct {
 // to the page (4096 byte block) containing the unwind info for that function.
 
 pub const UNWIND_SECTION_VERSION = 1;
-pub const UNWIND_SECOND_LEVEL_REGULAR = 2;
-pub const UNWIND_SECOND_LEVEL_COMPRESSED = 3;
 
 pub const unwind_info_section_header = extern struct {
     /// UNWIND_SECTION_VERSION
@@ -1974,9 +1978,15 @@ pub const unwind_info_regular_second_level_entry = extern struct {
     encoding: compact_unwind_encoding_t,
 };
 
+pub const UNWIND_SECOND_LEVEL = enum(u32) {
+    REGULAR = 2,
+    COMPRESSED = 3,
+    _,
+};
+
 pub const unwind_info_regular_second_level_page_header = extern struct {
     /// UNWIND_SECOND_LEVEL_REGULAR
-    kind: u32 = UNWIND_SECOND_LEVEL_REGULAR,
+    kind: UNWIND_SECOND_LEVEL = .REGULAR,
 
     entryPageOffset: u16,
     entryCount: u16,
@@ -1985,7 +1995,7 @@ pub const unwind_info_regular_second_level_page_header = extern struct {
 
 pub const unwind_info_compressed_second_level_page_header = extern struct {
     /// UNWIND_SECOND_LEVEL_COMPRESSED
-    kind: u32 = UNWIND_SECOND_LEVEL_COMPRESSED,
+    kind: UNWIND_SECOND_LEVEL = .COMPRESSED,
 
     entryPageOffset: u16,
     entryCount: u16,
@@ -1995,7 +2005,123 @@ pub const unwind_info_compressed_second_level_page_header = extern struct {
     // encodings array
 };
 
-pub const UnwindInfoCompressedEntry = packed struct(u32) {
+pub const UnwindInfoCompressedEntry = packed struct {
     funcOffset: u24,
     encodingIndex: u8,
+};
+
+pub const UNWIND_IS_NOT_FUNCTION_START: u32 = 0x80000000;
+pub const UNWIND_HAS_LSDA: u32 = 0x40000000;
+pub const UNWIND_PERSONALITY_MASK: u32 = 0x30000000;
+
+// x86_64
+pub const UNWIND_X86_64_MODE_MASK: u32 = 0x0F000000;
+pub const UNWIND_X86_64_MODE = enum(u4) {
+    OLD = 0,
+    RBP_FRAME = 1,
+    STACK_IMMD = 2,
+    STACK_IND = 3,
+    DWARF = 4,
+};
+pub const UNWIND_X86_64_RBP_FRAME_REGISTERS: u32 = 0x00007FFF;
+pub const UNWIND_X86_64_RBP_FRAME_OFFSET: u32 = 0x00FF0000;
+
+pub const UNWIND_X86_64_FRAMELESS_STACK_SIZE: u32 = 0x00FF0000;
+pub const UNWIND_X86_64_FRAMELESS_STACK_ADJUST: u32 = 0x0000E000;
+pub const UNWIND_X86_64_FRAMELESS_STACK_REG_COUNT: u32 = 0x00001C00;
+pub const UNWIND_X86_64_FRAMELESS_STACK_REG_PERMUTATION: u32 = 0x000003FF;
+
+pub const UNWIND_X86_64_DWARF_SECTION_OFFSET: u32 = 0x00FFFFFF;
+
+pub const UNWIND_X86_64_REG = enum(u3) {
+    NONE = 0,
+    RBX = 1,
+    R12 = 2,
+    R13 = 3,
+    R14 = 4,
+    R15 = 5,
+    RBP = 6,
+};
+
+// arm64
+pub const UNWIND_ARM64_MODE_MASK: u32 = 0x0F000000;
+pub const UNWIND_ARM64_MODE = enum(u4) {
+    OLD = 0,
+    FRAMELESS = 2,
+    DWARF = 3,
+    FRAME = 4,
+};
+
+pub const UNWIND_ARM64_FRAME_X19_X20_PAIR: u32 = 0x00000001;
+pub const UNWIND_ARM64_FRAME_X21_X22_PAIR: u32 = 0x00000002;
+pub const UNWIND_ARM64_FRAME_X23_X24_PAIR: u32 = 0x00000004;
+pub const UNWIND_ARM64_FRAME_X25_X26_PAIR: u32 = 0x00000008;
+pub const UNWIND_ARM64_FRAME_X27_X28_PAIR: u32 = 0x00000010;
+pub const UNWIND_ARM64_FRAME_D8_D9_PAIR: u32 = 0x00000100;
+pub const UNWIND_ARM64_FRAME_D10_D11_PAIR: u32 = 0x00000200;
+pub const UNWIND_ARM64_FRAME_D12_D13_PAIR: u32 = 0x00000400;
+pub const UNWIND_ARM64_FRAME_D14_D15_PAIR: u32 = 0x00000800;
+
+pub const UNWIND_ARM64_FRAMELESS_STACK_SIZE_MASK: u32 = 0x00FFF000;
+pub const UNWIND_ARM64_DWARF_SECTION_OFFSET: u32 = 0x00FFFFFF;
+
+pub const CompactUnwindEncoding = packed struct(u32) {
+    value: packed union {
+        x86_64: packed union {
+            frame: packed struct(u24) {
+                reg4: u3,
+                reg3: u3,
+                reg2: u3,
+                reg1: u3,
+                reg0: u3,
+                unused: u1 = 0,
+                frame_offset: u8,
+            },
+            frameless: packed struct(u24) {
+                stack_reg_permutation: u10,
+                stack_reg_count: u3,
+                stack: packed union {
+                    direct: packed struct(u11) {
+                        _: u3,
+                        stack_size: u8,
+                    },
+                    indirect: packed struct(u11) {
+                        stack_adjust: u3,
+                        sub_offset: u8,
+                    },
+                },
+            },
+            dwarf: u24,
+        },
+        arm64: packed union {
+            frame: packed struct(u24) {
+                x_reg_pairs: packed struct(u5) {
+                    x19_x20: u1,
+                    x21_x22: u1,
+                    x23_x24: u1,
+                    x25_x26: u1,
+                    x27_x28: u1,
+                },
+                d_reg_pairs: packed struct(u4) {
+                    d8_d9: u1,
+                    d10_d11: u1,
+                    d12_d13: u1,
+                    d14_d15: u1,
+                },
+                _: u15,
+            },
+            frameless: packed struct(u24) {
+                _: u12 = 0,
+                stack_size: u12,
+            },
+            dwarf: u24,
+        },
+    },
+    mode: packed union {
+        x86_64: UNWIND_X86_64_MODE,
+        arm64: UNWIND_ARM64_MODE,
+    },
+    personality_index: u2,
+    has_lsda: u1,
+    start: u1,
 };

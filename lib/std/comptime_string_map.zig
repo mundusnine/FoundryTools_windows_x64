@@ -5,31 +5,37 @@ const mem = std.mem;
 /// Works by separating the keys by length at comptime and only checking strings of
 /// equal length at runtime.
 ///
-/// `kvs` expects a list literal containing list literals or an array/slice of structs
-/// where `.@"0"` is the `[]const u8` key and `.@"1"` is the associated value of type `V`.
-/// TODO: https://github.com/ziglang/zig/issues/4335
+/// `kvs_list` expects a list of `struct { []const u8, V }` (key-value pair) tuples.
+/// You can pass `struct { []const u8 }` (only keys) tuples if `V` is `void`.
 pub fn ComptimeStringMap(comptime V: type, comptime kvs_list: anytype) type {
     const precomputed = comptime blk: {
-        @setEvalBranchQuota(2000);
+        @setEvalBranchQuota(1500);
         const KV = struct {
             key: []const u8,
             value: V,
         };
         var sorted_kvs: [kvs_list.len]KV = undefined;
-        const lenAsc = (struct {
-            fn lenAsc(context: void, a: KV, b: KV) bool {
-                _ = context;
-                return a.key.len < b.key.len;
-            }
-        }).lenAsc;
-        for (kvs_list) |kv, i| {
+        for (kvs_list, 0..) |kv, i| {
             if (V != void) {
                 sorted_kvs[i] = .{ .key = kv.@"0", .value = kv.@"1" };
             } else {
                 sorted_kvs[i] = .{ .key = kv.@"0", .value = {} };
             }
         }
-        std.sort.sort(KV, &sorted_kvs, {}, lenAsc);
+
+        const SortContext = struct {
+            kvs: []KV,
+
+            pub fn lessThan(ctx: @This(), a: usize, b: usize) bool {
+                return ctx.kvs[a].key.len < ctx.kvs[b].key.len;
+            }
+
+            pub fn swap(ctx: @This(), a: usize, b: usize) void {
+                return std.mem.swap(KV, &ctx.kvs[a], &ctx.kvs[b]);
+            }
+        };
+        mem.sortUnstableContext(0, sorted_kvs.len, SortContext{ .kvs = &sorted_kvs });
+
         const min_len = sorted_kvs[0].key.len;
         const max_len = sorted_kvs[sorted_kvs.len - 1].key.len;
         var len_indexes: [max_len + 1]usize = undefined;
@@ -51,12 +57,16 @@ pub fn ComptimeStringMap(comptime V: type, comptime kvs_list: anytype) type {
     };
 
     return struct {
+        /// Array of `struct { key: []const u8, value: V }` where `value` is `void{}` if `V` is `void`.
+        /// Sorted by `key` length.
         pub const kvs = precomputed.sorted_kvs;
 
+        /// Checks if the map has a value for the key.
         pub fn has(str: []const u8) bool {
             return get(str) != null;
         }
 
+        /// Returns the value for the key if any, else null.
         pub fn get(str: []const u8) ?V {
             if (str.len < precomputed.min_len or str.len > precomputed.max_len)
                 return null;
@@ -97,32 +107,26 @@ test "ComptimeStringMap list literal of list literals" {
 }
 
 test "ComptimeStringMap array of structs" {
-    const KV = struct {
-        @"0": []const u8,
-        @"1": TestEnum,
-    };
+    const KV = struct { []const u8, TestEnum };
     const map = ComptimeStringMap(TestEnum, [_]KV{
-        .{ .@"0" = "these", .@"1" = .D },
-        .{ .@"0" = "have", .@"1" = .A },
-        .{ .@"0" = "nothing", .@"1" = .B },
-        .{ .@"0" = "incommon", .@"1" = .C },
-        .{ .@"0" = "samelen", .@"1" = .E },
+        .{ "these", .D },
+        .{ "have", .A },
+        .{ "nothing", .B },
+        .{ "incommon", .C },
+        .{ "samelen", .E },
     });
 
     try testMap(map);
 }
 
 test "ComptimeStringMap slice of structs" {
-    const KV = struct {
-        @"0": []const u8,
-        @"1": TestEnum,
-    };
+    const KV = struct { []const u8, TestEnum };
     const slice: []const KV = &[_]KV{
-        .{ .@"0" = "these", .@"1" = .D },
-        .{ .@"0" = "have", .@"1" = .A },
-        .{ .@"0" = "nothing", .@"1" = .B },
-        .{ .@"0" = "incommon", .@"1" = .C },
-        .{ .@"0" = "samelen", .@"1" = .E },
+        .{ "these", .D },
+        .{ "have", .A },
+        .{ "nothing", .B },
+        .{ "incommon", .C },
+        .{ "samelen", .E },
     };
     const map = ComptimeStringMap(TestEnum, slice);
 
@@ -141,15 +145,13 @@ fn testMap(comptime map: anytype) !void {
 }
 
 test "ComptimeStringMap void value type, slice of structs" {
-    const KV = struct {
-        @"0": []const u8,
-    };
+    const KV = struct { []const u8 };
     const slice: []const KV = &[_]KV{
-        .{ .@"0" = "these" },
-        .{ .@"0" = "have" },
-        .{ .@"0" = "nothing" },
-        .{ .@"0" = "incommon" },
-        .{ .@"0" = "samelen" },
+        .{"these"},
+        .{"have"},
+        .{"nothing"},
+        .{"incommon"},
+        .{"samelen"},
     };
     const map = ComptimeStringMap(void, slice);
 

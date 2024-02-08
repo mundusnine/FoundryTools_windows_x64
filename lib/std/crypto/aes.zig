@@ -5,14 +5,21 @@ const testing = std.testing;
 const has_aesni = std.Target.x86.featureSetHas(builtin.cpu.features, .aes);
 const has_avx = std.Target.x86.featureSetHas(builtin.cpu.features, .avx);
 const has_armaes = std.Target.aarch64.featureSetHas(builtin.cpu.features, .aes);
-const impl = if (builtin.cpu.arch == .x86_64 and has_aesni and has_avx) impl: {
+// C backend doesn't currently support passing vectors to inline asm.
+const impl = if (builtin.cpu.arch == .x86_64 and builtin.zig_backend != .stage2_c and has_aesni and has_avx) impl: {
     break :impl @import("aes/aesni.zig");
-} else if (builtin.cpu.arch == .aarch64 and has_armaes)
+} else if (builtin.cpu.arch == .aarch64 and builtin.zig_backend != .stage2_c and has_armaes)
 impl: {
     break :impl @import("aes/armcrypto.zig");
 } else impl: {
     break :impl @import("aes/soft.zig");
 };
+
+/// `true` if AES is backed by hardware (AES-NI on x86_64, ARM Crypto Extensions on AArch64).
+/// Software implementations are much slower, and should be avoided if possible.
+pub const has_hardware_support =
+    (builtin.cpu.arch == .x86_64 and has_aesni and has_avx) or
+    (builtin.cpu.arch == .aarch64 and has_armaes);
 
 pub const Block = impl.Block;
 pub const AesEncryptCtx = impl.AesEncryptCtx;
@@ -115,11 +122,11 @@ test "expand 128-bit key" {
     const dec = Aes128.initDec(key);
     var exp: [16]u8 = undefined;
 
-    for (enc.key_schedule.round_keys) |round_key, i| {
+    for (enc.key_schedule.round_keys, 0..) |round_key, i| {
         _ = try std.fmt.hexToBytes(&exp, exp_enc[i]);
         try testing.expectEqualSlices(u8, &exp, &round_key.toBytes());
     }
-    for (dec.key_schedule.round_keys) |round_key, i| {
+    for (dec.key_schedule.round_keys, 0..) |round_key, i| {
         _ = try std.fmt.hexToBytes(&exp, exp_dec[i]);
         try testing.expectEqualSlices(u8, &exp, &round_key.toBytes());
     }
@@ -154,11 +161,11 @@ test "expand 256-bit key" {
     const dec = Aes256.initDec(key);
     var exp: [16]u8 = undefined;
 
-    for (enc.key_schedule.round_keys) |round_key, i| {
+    for (enc.key_schedule.round_keys, 0..) |round_key, i| {
         _ = try std.fmt.hexToBytes(&exp, exp_enc[i]);
         try testing.expectEqualSlices(u8, &exp, &round_key.toBytes());
     }
-    for (dec.key_schedule.round_keys) |round_key, i| {
+    for (dec.key_schedule.round_keys, 0..) |round_key, i| {
         _ = try std.fmt.hexToBytes(&exp, exp_dec[i]);
         try testing.expectEqualSlices(u8, &exp, &round_key.toBytes());
     }

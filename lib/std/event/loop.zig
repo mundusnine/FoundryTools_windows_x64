@@ -1,6 +1,5 @@
 const std = @import("../std.zig");
 const builtin = @import("builtin");
-const root = @import("root");
 const assert = std.debug.assert;
 const testing = std.testing;
 const mem = std.mem;
@@ -63,9 +62,9 @@ pub const Loop = struct {
         pub const Overlapped = @TypeOf(overlapped_init);
 
         pub const Id = enum {
-            Basic,
-            Stop,
-            EventFd,
+            basic,
+            stop,
+            event_fd,
         };
 
         pub const EventFd = switch (builtin.os.tag) {
@@ -104,25 +103,29 @@ pub const Loop = struct {
         };
     };
 
-    const LoopOrVoid = switch (std.io.mode) {
-        .blocking => void,
-        .evented => Loop,
+    pub const Instance = switch (std.options.io_mode) {
+        .blocking => @TypeOf(null),
+        .evented => ?*Loop,
     };
+    pub const instance = std.options.event_loop;
 
-    var global_instance_state: LoopOrVoid = undefined;
-    const default_instance: ?*LoopOrVoid = switch (std.io.mode) {
+    var global_instance_state: Loop = undefined;
+    pub const default_instance = switch (std.options.io_mode) {
         .blocking => null,
         .evented => &global_instance_state,
     };
-    pub const instance: ?*LoopOrVoid = if (@hasDecl(root, "event_loop")) root.event_loop else default_instance;
+
+    pub const Mode = enum {
+        single_threaded,
+        multi_threaded,
+    };
+    pub const default_mode = .multi_threaded;
 
     /// TODO copy elision / named return values so that the threads referencing *Loop
     /// have the correct pointer value.
     /// https://github.com/ziglang/zig/issues/2761 and https://github.com/ziglang/zig/issues/2765
     pub fn init(self: *Loop) !void {
-        if (builtin.single_threaded or
-            (@hasDecl(root, "event_loop_mode") and root.event_loop_mode == .single_threaded))
-        {
+        if (builtin.single_threaded or std.options.event_loop_mode == .single_threaded) {
             return self.initSingleThreaded();
         } else {
             return self.initMultiThreaded();
@@ -162,11 +165,11 @@ pub const Loop = struct {
             .available_eventfd_resume_nodes = std.atomic.Stack(ResumeNode.EventFd).init(),
             .eventfd_resume_nodes = undefined,
             .final_resume_node = ResumeNode{
-                .id = ResumeNode.Id.Stop,
+                .id = .stop,
                 .handle = undefined,
                 .overlapped = ResumeNode.overlapped_init,
             },
-            .fs_end_request = .{ .data = .{ .msg = .end, .finish = .NoAction } },
+            .fs_end_request = .{ .data = .{ .msg = .end, .finish = .no_action } },
             .fs_queue = std.atomic.Queue(Request).init(),
             .fs_thread = undefined,
             .fs_thread_wakeup = .{},
@@ -176,7 +179,7 @@ pub const Loop = struct {
 
         // We need at least one of these in case the fs thread wants to use onNextTick
         const extra_thread_count = thread_count - 1;
-        const resume_node_count = std.math.max(extra_thread_count, 1);
+        const resume_node_count = @max(extra_thread_count, 1);
         self.eventfd_resume_nodes = try self.arena.allocator().alloc(
             std.atomic.Stack(ResumeNode.EventFd).Node,
             resume_node_count,
@@ -221,7 +224,7 @@ pub const Loop = struct {
                     eventfd_node.* = std.atomic.Stack(ResumeNode.EventFd).Node{
                         .data = ResumeNode.EventFd{
                             .base = ResumeNode{
-                                .id = .EventFd,
+                                .id = .event_fd,
                                 .handle = undefined,
                                 .overlapped = ResumeNode.overlapped_init,
                             },
@@ -241,7 +244,7 @@ pub const Loop = struct {
 
                 self.os_data.final_eventfd_event = os.linux.epoll_event{
                     .events = os.linux.EPOLL.IN,
-                    .data = os.linux.epoll_data{ .ptr = @ptrToInt(&self.final_resume_node) },
+                    .data = os.linux.epoll_data{ .ptr = @intFromPtr(&self.final_resume_node) },
                 };
                 try os.epoll_ctl(
                     self.os_data.epollfd,
@@ -275,11 +278,11 @@ pub const Loop = struct {
 
                 const empty_kevs = &[0]os.Kevent{};
 
-                for (self.eventfd_resume_nodes) |*eventfd_node, i| {
+                for (self.eventfd_resume_nodes, 0..) |*eventfd_node, i| {
                     eventfd_node.* = std.atomic.Stack(ResumeNode.EventFd).Node{
                         .data = ResumeNode.EventFd{
                             .base = ResumeNode{
-                                .id = ResumeNode.Id.EventFd,
+                                .id = .event_fd,
                                 .handle = undefined,
                                 .overlapped = ResumeNode.overlapped_init,
                             },
@@ -290,7 +293,7 @@ pub const Loop = struct {
                                 .flags = os.system.EV_CLEAR | os.system.EV_ADD | os.system.EV_DISABLE,
                                 .fflags = 0,
                                 .data = 0,
-                                .udata = @ptrToInt(&eventfd_node.data.base),
+                                .udata = @intFromPtr(&eventfd_node.data.base),
                             },
                         },
                         .next = undefined,
@@ -310,7 +313,7 @@ pub const Loop = struct {
                     .flags = os.system.EV_ADD | os.system.EV_DISABLE,
                     .fflags = 0,
                     .data = 0,
-                    .udata = @ptrToInt(&self.final_resume_node),
+                    .udata = @intFromPtr(&self.final_resume_node),
                 };
                 const final_kev_arr = @as(*const [1]os.Kevent, &self.os_data.final_kevent);
                 _ = try os.kevent(self.os_data.kqfd, final_kev_arr, empty_kevs, null);
@@ -340,11 +343,11 @@ pub const Loop = struct {
 
                 const empty_kevs = &[0]os.Kevent{};
 
-                for (self.eventfd_resume_nodes) |*eventfd_node, i| {
+                for (self.eventfd_resume_nodes, 0..) |*eventfd_node, i| {
                     eventfd_node.* = std.atomic.Stack(ResumeNode.EventFd).Node{
                         .data = ResumeNode.EventFd{
                             .base = ResumeNode{
-                                .id = ResumeNode.Id.EventFd,
+                                .id = .event_fd,
                                 .handle = undefined,
                                 .overlapped = ResumeNode.overlapped_init,
                             },
@@ -355,7 +358,7 @@ pub const Loop = struct {
                                 .flags = os.system.EV_CLEAR | os.system.EV_ADD | os.system.EV_DISABLE | os.system.EV_ONESHOT,
                                 .fflags = 0,
                                 .data = 0,
-                                .udata = @ptrToInt(&eventfd_node.data.base),
+                                .udata = @intFromPtr(&eventfd_node.data.base),
                             },
                         },
                         .next = undefined,
@@ -374,7 +377,7 @@ pub const Loop = struct {
                     .flags = os.system.EV_ADD | os.system.EV_ONESHOT | os.system.EV_DISABLE,
                     .fflags = 0,
                     .data = 0,
-                    .udata = @ptrToInt(&self.final_resume_node),
+                    .udata = @intFromPtr(&self.final_resume_node),
                 };
                 const final_kev_arr = @as(*const [1]os.Kevent, &self.os_data.final_kevent);
                 _ = try os.kevent(self.os_data.kqfd, final_kev_arr, empty_kevs, null);
@@ -410,12 +413,12 @@ pub const Loop = struct {
                     eventfd_node.* = std.atomic.Stack(ResumeNode.EventFd).Node{
                         .data = ResumeNode.EventFd{
                             .base = ResumeNode{
-                                .id = ResumeNode.Id.EventFd,
+                                .id = .event_fd,
                                 .handle = undefined,
                                 .overlapped = ResumeNode.overlapped_init,
                             },
                             // this one is for sending events
-                            .completion_key = @ptrToInt(&eventfd_node.data.base),
+                            .completion_key = @intFromPtr(&eventfd_node.data.base),
                         },
                         .next = undefined,
                     };
@@ -485,7 +488,7 @@ pub const Loop = struct {
         assert(flags & os.linux.EPOLL.ET == os.linux.EPOLL.ET);
         var ev = os.linux.epoll_event{
             .events = flags,
-            .data = os.linux.epoll_data{ .ptr = @ptrToInt(resume_node) },
+            .data = os.linux.epoll_data{ .ptr = @intFromPtr(resume_node) },
         };
         try os.epoll_ctl(self.os_data.epollfd, op, fd, &ev);
     }
@@ -500,7 +503,7 @@ pub const Loop = struct {
         assert(flags & os.linux.EPOLL.ONESHOT == os.linux.EPOLL.ONESHOT);
         var resume_node = ResumeNode.Basic{
             .base = ResumeNode{
-                .id = .Basic,
+                .id = .basic,
                 .handle = @frame(),
                 .overlapped = ResumeNode.overlapped_init,
             },
@@ -553,7 +556,7 @@ pub const Loop = struct {
                 self.linuxWaitFd(fd, os.linux.EPOLL.ET | os.linux.EPOLL.ONESHOT | os.linux.EPOLL.IN);
             },
             .macos, .ios, .tvos, .watchos, .freebsd, .netbsd, .dragonfly, .openbsd => {
-                self.bsdWaitKev(@intCast(usize, fd), os.system.EVFILT_READ, os.system.EV_ONESHOT);
+                self.bsdWaitKev(@as(usize, @intCast(fd)), os.system.EVFILT_READ, os.system.EV_ONESHOT);
             },
             else => @compileError("Unsupported OS"),
         }
@@ -565,7 +568,7 @@ pub const Loop = struct {
                 self.linuxWaitFd(fd, os.linux.EPOLL.ET | os.linux.EPOLL.ONESHOT | os.linux.EPOLL.OUT);
             },
             .macos, .ios, .tvos, .watchos, .freebsd, .netbsd, .dragonfly, .openbsd => {
-                self.bsdWaitKev(@intCast(usize, fd), os.system.EVFILT_WRITE, os.system.EV_ONESHOT);
+                self.bsdWaitKev(@as(usize, @intCast(fd)), os.system.EVFILT_WRITE, os.system.EV_ONESHOT);
             },
             else => @compileError("Unsupported OS"),
         }
@@ -577,8 +580,8 @@ pub const Loop = struct {
                 self.linuxWaitFd(fd, os.linux.EPOLL.ET | os.linux.EPOLL.ONESHOT | os.linux.EPOLL.OUT | os.linux.EPOLL.IN);
             },
             .macos, .ios, .tvos, .watchos, .freebsd, .netbsd, .dragonfly, .openbsd => {
-                self.bsdWaitKev(@intCast(usize, fd), os.system.EVFILT_READ, os.system.EV_ONESHOT);
-                self.bsdWaitKev(@intCast(usize, fd), os.system.EVFILT_WRITE, os.system.EV_ONESHOT);
+                self.bsdWaitKev(@as(usize, @intCast(fd)), os.system.EVFILT_READ, os.system.EV_ONESHOT);
+                self.bsdWaitKev(@as(usize, @intCast(fd)), os.system.EVFILT_WRITE, os.system.EV_ONESHOT);
             },
             else => @compileError("Unsupported OS"),
         }
@@ -587,7 +590,7 @@ pub const Loop = struct {
     pub fn bsdWaitKev(self: *Loop, ident: usize, filter: i16, flags: u16) void {
         var resume_node = ResumeNode.Basic{
             .base = ResumeNode{
-                .id = ResumeNode.Id.Basic,
+                .id = .basic,
                 .handle = @frame(),
                 .overlapped = ResumeNode.overlapped_init,
             },
@@ -616,7 +619,7 @@ pub const Loop = struct {
             .flags = os.system.EV_ADD | os.system.EV_ENABLE | os.system.EV_CLEAR | flags,
             .fflags = 0,
             .data = 0,
-            .udata = @ptrToInt(&resume_node.base),
+            .udata = @intFromPtr(&resume_node.base),
         }};
         const empty_kevs = &[0]os.Kevent{};
         _ = try os.kevent(self.os_data.kqfd, &kev, empty_kevs, null);
@@ -900,7 +903,7 @@ pub const Loop = struct {
             }
         }
 
-        // TODO: use a tickless heirarchical timer wheel:
+        // TODO: use a tickless hierarchical timer wheel:
         // https://github.com/wahern/timeout/
         const Waiters = struct {
             entries: std.atomic.Queue(anyframe),
@@ -944,7 +947,7 @@ pub const Loop = struct {
                 // starting from the head
                 var head = self.entries.head orelse return null;
 
-                // traverse the list of waiting entires to
+                // traverse the list of waiting entries to
                 // find the Node with the smallest `expires` field
                 var min = head;
                 while (head.next) |node| {
@@ -1016,7 +1019,7 @@ pub const Loop = struct {
                         .result = undefined,
                     },
                 },
-                .finish = .{ .TickNode = .{ .data = @frame() } },
+                .finish = .{ .tick_node = .{ .data = @frame() } },
             },
         };
         suspend {
@@ -1038,7 +1041,7 @@ pub const Loop = struct {
                         .result = undefined,
                     },
                 },
-                .finish = .{ .TickNode = .{ .data = @frame() } },
+                .finish = .{ .tick_node = .{ .data = @frame() } },
             },
         };
         suspend {
@@ -1052,7 +1055,7 @@ pub const Loop = struct {
         var req_node = Request.Node{
             .data = .{
                 .msg = .{ .close = .{ .fd = fd } },
-                .finish = .{ .TickNode = .{ .data = @frame() } },
+                .finish = .{ .tick_node = .{ .data = @frame() } },
             },
         };
         suspend {
@@ -1073,7 +1076,7 @@ pub const Loop = struct {
                             .result = undefined,
                         },
                     },
-                    .finish = .{ .TickNode = .{ .data = @frame() } },
+                    .finish = .{ .tick_node = .{ .data = @frame() } },
                 },
             };
             suspend {
@@ -1106,7 +1109,7 @@ pub const Loop = struct {
                             .result = undefined,
                         },
                     },
-                    .finish = .{ .TickNode = .{ .data = @frame() } },
+                    .finish = .{ .tick_node = .{ .data = @frame() } },
                 },
             };
             suspend {
@@ -1140,7 +1143,7 @@ pub const Loop = struct {
                             .result = undefined,
                         },
                     },
-                    .finish = .{ .TickNode = .{ .data = @frame() } },
+                    .finish = .{ .tick_node = .{ .data = @frame() } },
                 },
             };
             suspend {
@@ -1174,7 +1177,7 @@ pub const Loop = struct {
                             .result = undefined,
                         },
                     },
-                    .finish = .{ .TickNode = .{ .data = @frame() } },
+                    .finish = .{ .tick_node = .{ .data = @frame() } },
                 },
             };
             suspend {
@@ -1207,7 +1210,7 @@ pub const Loop = struct {
                             .result = undefined,
                         },
                     },
-                    .finish = .{ .TickNode = .{ .data = @frame() } },
+                    .finish = .{ .tick_node = .{ .data = @frame() } },
                 },
             };
             suspend {
@@ -1240,7 +1243,7 @@ pub const Loop = struct {
                             .result = undefined,
                         },
                     },
-                    .finish = .{ .TickNode = .{ .data = @frame() } },
+                    .finish = .{ .tick_node = .{ .data = @frame() } },
                 },
             };
             suspend {
@@ -1274,7 +1277,7 @@ pub const Loop = struct {
                             .result = undefined,
                         },
                     },
-                    .finish = .{ .TickNode = .{ .data = @frame() } },
+                    .finish = .{ .tick_node = .{ .data = @frame() } },
                 },
             };
             suspend {
@@ -1308,7 +1311,7 @@ pub const Loop = struct {
                             .result = undefined,
                         },
                     },
-                    .finish = .{ .TickNode = .{ .data = @frame() } },
+                    .finish = .{ .tick_node = .{ .data = @frame() } },
                 },
             };
             suspend {
@@ -1388,7 +1391,7 @@ pub const Loop = struct {
                         .result = undefined,
                     },
                 },
-                .finish = .{ .TickNode = .{ .data = @frame() } },
+                .finish = .{ .tick_node = .{ .data = @frame() } },
             },
         };
         suspend {
@@ -1412,13 +1415,13 @@ pub const Loop = struct {
                     var events: [1]os.linux.epoll_event = undefined;
                     const count = os.epoll_wait(self.os_data.epollfd, events[0..], -1);
                     for (events[0..count]) |ev| {
-                        const resume_node = @intToPtr(*ResumeNode, ev.data.ptr);
+                        const resume_node = @as(*ResumeNode, @ptrFromInt(ev.data.ptr));
                         const handle = resume_node.handle;
                         const resume_node_id = resume_node.id;
                         switch (resume_node_id) {
-                            .Basic => {},
-                            .Stop => return,
-                            .EventFd => {
+                            .basic => {},
+                            .stop => return,
+                            .event_fd => {
                                 const event_fd_node = @fieldParentPtr(ResumeNode.EventFd, "base", resume_node);
                                 event_fd_node.epoll_op = os.linux.EPOLL.CTL_MOD;
                                 const stack_node = @fieldParentPtr(std.atomic.Stack(ResumeNode.EventFd).Node, "data", event_fd_node);
@@ -1426,7 +1429,7 @@ pub const Loop = struct {
                             },
                         }
                         resume handle;
-                        if (resume_node_id == ResumeNode.Id.EventFd) {
+                        if (resume_node_id == .event_fd) {
                             self.finishOneEvent();
                         }
                     }
@@ -1436,23 +1439,23 @@ pub const Loop = struct {
                     const empty_kevs = &[0]os.Kevent{};
                     const count = os.kevent(self.os_data.kqfd, empty_kevs, eventlist[0..], null) catch unreachable;
                     for (eventlist[0..count]) |ev| {
-                        const resume_node = @intToPtr(*ResumeNode, ev.udata);
+                        const resume_node = @as(*ResumeNode, @ptrFromInt(ev.udata));
                         const handle = resume_node.handle;
                         const resume_node_id = resume_node.id;
                         switch (resume_node_id) {
-                            .Basic => {
+                            .basic => {
                                 const basic_node = @fieldParentPtr(ResumeNode.Basic, "base", resume_node);
                                 basic_node.kev = ev;
                             },
-                            .Stop => return,
-                            .EventFd => {
+                            .stop => return,
+                            .event_fd => {
                                 const event_fd_node = @fieldParentPtr(ResumeNode.EventFd, "base", resume_node);
                                 const stack_node = @fieldParentPtr(std.atomic.Stack(ResumeNode.EventFd).Node, "data", event_fd_node);
                                 self.available_eventfd_resume_nodes.push(stack_node);
                             },
                         }
                         resume handle;
-                        if (resume_node_id == ResumeNode.Id.EventFd) {
+                        if (resume_node_id == .event_fd) {
                             self.finishOneEvent();
                         }
                     }
@@ -1469,14 +1472,14 @@ pub const Loop = struct {
                             .Cancelled => continue,
                         }
                         if (overlapped) |o| break o;
-                    } else unreachable; // TODO else unreachable should not be necessary
+                    };
                     const resume_node = @fieldParentPtr(ResumeNode, "overlapped", overlapped);
                     const handle = resume_node.handle;
                     const resume_node_id = resume_node.id;
                     switch (resume_node_id) {
-                        .Basic => {},
-                        .Stop => return,
-                        .EventFd => {
+                        .basic => {},
+                        .stop => return,
+                        .event_fd => {
                             const event_fd_node = @fieldParentPtr(ResumeNode.EventFd, "base", resume_node);
                             const stack_node = @fieldParentPtr(std.atomic.Stack(ResumeNode.EventFd).Node, "data", event_fd_node);
                             self.available_eventfd_resume_nodes.push(stack_node);
@@ -1546,8 +1549,8 @@ pub const Loop = struct {
                     .close => |*msg| os.close(msg.fd),
                 }
                 switch (node.data.finish) {
-                    .TickNode => |*tick_node| self.onNextTick(tick_node),
-                    .NoAction => {},
+                    .tick_node => |*tick_node| self.onNextTick(tick_node),
+                    .no_action => {},
                 }
                 self.finishOneEvent();
             }
@@ -1583,8 +1586,8 @@ pub const Loop = struct {
         pub const Node = std.atomic.Queue(Request).Node;
 
         pub const Finish = union(enum) {
-            TickNode: Loop.NextTickNode,
-            NoAction,
+            tick_node: Loop.NextTickNode,
+            no_action,
         };
 
         pub const Msg = union(enum) {
@@ -1753,7 +1756,7 @@ test "std.event.Loop - runDetached" {
     try loop.runDetached(std.testing.allocator, testRunDetached, .{});
 
     // Now we can start the event loop. The function will return only
-    // after all tasks have been completed, allowing us to synchonize
+    // after all tasks have been completed, allowing us to synchronize
     // with the previous runDetached.
     loop.run();
 

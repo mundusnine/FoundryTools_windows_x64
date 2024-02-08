@@ -68,6 +68,7 @@ pub const Node = struct {
     context: *Progress,
     parent: ?*Node,
     name: []const u8,
+    unit: []const u8 = "",
     /// Must be handled atomically to be thread-safe.
     recently_updated_child: ?*Node = null,
     /// Must be handled atomically to be thread-safe. 0 means null.
@@ -126,6 +127,36 @@ pub const Node = struct {
         }
     }
 
+    /// Thread-safe.
+    pub fn setName(self: *Node, name: []const u8) void {
+        const progress = self.context;
+        progress.update_mutex.lock();
+        defer progress.update_mutex.unlock();
+        self.name = name;
+        if (self.parent) |parent| {
+            @atomicStore(?*Node, &parent.recently_updated_child, self, .Release);
+            if (parent.parent) |grand_parent| {
+                @atomicStore(?*Node, &grand_parent.recently_updated_child, parent, .Release);
+            }
+            if (progress.timer) |*timer| progress.maybeRefreshWithHeldLock(timer);
+        }
+    }
+
+    /// Thread-safe.
+    pub fn setUnit(self: *Node, unit: []const u8) void {
+        const progress = self.context;
+        progress.update_mutex.lock();
+        defer progress.update_mutex.unlock();
+        self.unit = unit;
+        if (self.parent) |parent| {
+            @atomicStore(?*Node, &parent.recently_updated_child, self, .Release);
+            if (parent.parent) |grand_parent| {
+                @atomicStore(?*Node, &grand_parent.recently_updated_child, parent, .Release);
+            }
+            if (progress.timer) |*timer| progress.maybeRefreshWithHeldLock(timer);
+        }
+    }
+
     /// Thread-safe. 0 means unknown.
     pub fn setEstimatedTotalItems(self: *Node, count: usize) void {
         @atomicStore(usize, &self.unprotected_estimated_total_items, count, .Monotonic);
@@ -174,14 +205,18 @@ pub fn maybeRefresh(self: *Progress) void {
     if (self.timer) |*timer| {
         if (!self.update_mutex.tryLock()) return;
         defer self.update_mutex.unlock();
-        const now = timer.read();
-        if (now < self.initial_delay_ns) return;
-        // TODO I have observed this to happen sometimes. I think we need to follow Rust's
-        // lead and guarantee monotonically increasing times in the std lib itself.
-        if (now < self.prev_refresh_timestamp) return;
-        if (now - self.prev_refresh_timestamp < self.refresh_rate_ns) return;
-        return self.refreshWithHeldLock();
+        maybeRefreshWithHeldLock(self, timer);
     }
+}
+
+fn maybeRefreshWithHeldLock(self: *Progress, timer: *std.time.Timer) void {
+    const now = timer.read();
+    if (now < self.initial_delay_ns) return;
+    // TODO I have observed this to happen sometimes. I think we need to follow Rust's
+    // lead and guarantee monotonically increasing times in the std lib itself.
+    if (now < self.prev_refresh_timestamp) return;
+    if (now - self.prev_refresh_timestamp < self.refresh_rate_ns) return;
+    return self.refreshWithHeldLock();
 }
 
 /// Updates the terminal and resets `self.next_refresh_timestamp`. Thread-safe.
@@ -192,36 +227,35 @@ pub fn refresh(self: *Progress) void {
     return self.refreshWithHeldLock();
 }
 
-fn refreshWithHeldLock(self: *Progress) void {
-    const is_dumb = !self.supports_ansi_escape_codes and !self.is_windows_terminal;
-    if (is_dumb and self.dont_print_on_dumb) return;
-
-    const file = self.terminal orelse return;
-
-    var end: usize = 0;
-    if (self.columns_written > 0) {
+fn clearWithHeldLock(p: *Progress, end_ptr: *usize) void {
+    const file = p.terminal orelse return;
+    var end = end_ptr.*;
+    if (p.columns_written > 0) {
         // restore the cursor position by moving the cursor
         // `columns_written` cells to the left, then clear the rest of the
         // line
-        if (self.supports_ansi_escape_codes) {
-            end += (std.fmt.bufPrint(self.output_buffer[end..], "\x1b[{d}D", .{self.columns_written}) catch unreachable).len;
-            end += (std.fmt.bufPrint(self.output_buffer[end..], "\x1b[0K", .{}) catch unreachable).len;
+        if (p.supports_ansi_escape_codes) {
+            end += (std.fmt.bufPrint(p.output_buffer[end..], "\x1b[{d}D", .{p.columns_written}) catch unreachable).len;
+            end += (std.fmt.bufPrint(p.output_buffer[end..], "\x1b[0K", .{}) catch unreachable).len;
         } else if (builtin.os.tag == .windows) winapi: {
-            std.debug.assert(self.is_windows_terminal);
+            std.debug.assert(p.is_windows_terminal);
 
             var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
-            if (windows.kernel32.GetConsoleScreenBufferInfo(file.handle, &info) != windows.TRUE)
-                unreachable;
+            if (windows.kernel32.GetConsoleScreenBufferInfo(file.handle, &info) != windows.TRUE) {
+                // stop trying to write to this file
+                p.terminal = null;
+                break :winapi;
+            }
 
             var cursor_pos = windows.COORD{
-                .X = info.dwCursorPosition.X - @intCast(windows.SHORT, self.columns_written),
+                .X = info.dwCursorPosition.X - @as(windows.SHORT, @intCast(p.columns_written)),
                 .Y = info.dwCursorPosition.Y,
             };
 
             if (cursor_pos.X < 0)
                 cursor_pos.X = 0;
 
-            const fill_chars = @intCast(windows.DWORD, info.dwSize.X - cursor_pos.X);
+            const fill_chars = @as(windows.DWORD, @intCast(info.dwSize.X - cursor_pos.X));
 
             var written: windows.DWORD = undefined;
             if (windows.kernel32.FillConsoleOutputAttribute(
@@ -231,8 +265,8 @@ fn refreshWithHeldLock(self: *Progress) void {
                 cursor_pos,
                 &written,
             ) != windows.TRUE) {
-                // Stop trying to write to this file.
-                self.terminal = null;
+                // stop trying to write to this file
+                p.terminal = null;
                 break :winapi;
             }
             if (windows.kernel32.FillConsoleOutputCharacterW(
@@ -241,18 +275,35 @@ fn refreshWithHeldLock(self: *Progress) void {
                 fill_chars,
                 cursor_pos,
                 &written,
-            ) != windows.TRUE) unreachable;
-
-            if (windows.kernel32.SetConsoleCursorPosition(file.handle, cursor_pos) != windows.TRUE)
-                unreachable;
+            ) != windows.TRUE) {
+                // stop trying to write to this file
+                p.terminal = null;
+                break :winapi;
+            }
+            if (windows.kernel32.SetConsoleCursorPosition(file.handle, cursor_pos) != windows.TRUE) {
+                // stop trying to write to this file
+                p.terminal = null;
+                break :winapi;
+            }
         } else {
             // we are in a "dumb" terminal like in acme or writing to a file
-            self.output_buffer[end] = '\n';
+            p.output_buffer[end] = '\n';
             end += 1;
         }
 
-        self.columns_written = 0;
+        p.columns_written = 0;
     }
+    end_ptr.* = end;
+}
+
+fn refreshWithHeldLock(self: *Progress) void {
+    const is_dumb = !self.supports_ansi_escape_codes and !self.is_windows_terminal;
+    if (is_dumb and self.dont_print_on_dumb) return;
+
+    const file = self.terminal orelse return;
+
+    var end: usize = 0;
+    clearWithHeldLock(self, &end);
 
     if (!self.done) {
         var need_ellipse = false;
@@ -272,11 +323,11 @@ fn refreshWithHeldLock(self: *Progress) void {
                 }
                 if (eti > 0) {
                     if (need_ellipse) self.bufWrite(&end, " ", .{});
-                    self.bufWrite(&end, "[{d}/{d}] ", .{ current_item, eti });
+                    self.bufWrite(&end, "[{d}/{d}{s}] ", .{ current_item, eti, node.unit });
                     need_ellipse = false;
                 } else if (completed_items != 0) {
                     if (need_ellipse) self.bufWrite(&end, " ", .{});
-                    self.bufWrite(&end, "[{d}] ", .{current_item});
+                    self.bufWrite(&end, "[{d}{s}] ", .{ current_item, node.unit });
                     need_ellipse = false;
                 }
             }
@@ -288,7 +339,7 @@ fn refreshWithHeldLock(self: *Progress) void {
     }
 
     _ = file.write(self.output_buffer[0..end]) catch {
-        // Stop trying to write to this file once it errors.
+        // stop trying to write to this file
         self.terminal = null;
     };
     if (self.timer) |*timer| {
@@ -309,6 +360,26 @@ pub fn log(self: *Progress, comptime format: []const u8, args: anytype) void {
     self.columns_written = 0;
 }
 
+/// Allows the caller to freely write to stderr until unlock_stderr() is called.
+/// During the lock, the progress information is cleared from the terminal.
+pub fn lock_stderr(p: *Progress) void {
+    p.update_mutex.lock();
+    if (p.terminal) |file| {
+        var end: usize = 0;
+        clearWithHeldLock(p, &end);
+        _ = file.write(p.output_buffer[0..end]) catch {
+            // stop trying to write to this file
+            p.terminal = null;
+        };
+    }
+    std.debug.getStderrMutex().lock();
+}
+
+pub fn unlock_stderr(p: *Progress) void {
+    std.debug.getStderrMutex().unlock();
+    p.update_mutex.unlock();
+}
+
 fn bufWrite(self: *Progress, end: *usize, comptime format: []const u8, args: anytype) void {
     if (std.fmt.bufPrint(self.output_buffer[end.*..], format, args)) |written| {
         const amt = written.len;
@@ -319,7 +390,7 @@ fn bufWrite(self: *Progress, end: *usize, comptime format: []const u8, args: any
             self.columns_written += self.output_buffer.len - end.*;
             end.* = self.output_buffer.len;
             const suffix = "... ";
-            std.mem.copy(u8, self.output_buffer[self.output_buffer.len - suffix.len ..], suffix);
+            @memcpy(self.output_buffer[self.output_buffer.len - suffix.len ..], suffix);
         },
     }
 }

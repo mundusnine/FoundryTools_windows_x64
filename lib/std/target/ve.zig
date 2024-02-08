@@ -17,13 +17,13 @@ pub const all_features = blk: {
     const len = @typeInfo(Feature).Enum.fields.len;
     std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
     var result: [len]CpuFeature = undefined;
-    result[@enumToInt(Feature.vpu)] = .{
+    result[@intFromEnum(Feature.vpu)] = .{
         .llvm_name = "vpu",
         .description = "Enable the VPU",
         .dependencies = featureSet(&[_]Feature{}),
     };
     const ti = @typeInfo(Feature);
-    for (result) |*elem, i| {
+    for (&result, 0..) |*elem, i| {
         elem.index = i;
         elem.name = ti.Enum.fields[i].name;
     }

@@ -6,15 +6,15 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__fabsh, .{ .name = "__fabsh", .linkage = common.linkage });
-    @export(fabsf, .{ .name = "fabsf", .linkage = common.linkage });
-    @export(fabs, .{ .name = "fabs", .linkage = common.linkage });
-    @export(__fabsx, .{ .name = "__fabsx", .linkage = common.linkage });
+    @export(__fabsh, .{ .name = "__fabsh", .linkage = common.linkage, .visibility = common.visibility });
+    @export(fabsf, .{ .name = "fabsf", .linkage = common.linkage, .visibility = common.visibility });
+    @export(fabs, .{ .name = "fabs", .linkage = common.linkage, .visibility = common.visibility });
+    @export(__fabsx, .{ .name = "__fabsx", .linkage = common.linkage, .visibility = common.visibility });
     if (common.want_ppc_abi) {
-        @export(fabsq, .{ .name = "fabsf128", .linkage = common.linkage });
+        @export(fabsq, .{ .name = "fabsf128", .linkage = common.linkage, .visibility = common.visibility });
     }
-    @export(fabsq, .{ .name = "fabsq", .linkage = common.linkage });
-    @export(fabsl, .{ .name = "fabsl", .linkage = common.linkage });
+    @export(fabsq, .{ .name = "fabsq", .linkage = common.linkage, .visibility = common.visibility });
+    @export(fabsl, .{ .name = "fabsl", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 pub fn __fabsh(a: f16) callconv(.C) f16 {
@@ -51,7 +51,7 @@ pub fn fabsl(x: c_longdouble) callconv(.C) c_longdouble {
 inline fn generic_fabs(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
     const TBits = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
-    const float_bits = @bitCast(TBits, x);
+    const float_bits = @as(TBits, @bitCast(x));
     const remove_sign = ~@as(TBits, 0) >> 1;
-    return @bitCast(T, float_bits & remove_sign);
+    return @as(T, @bitCast(float_bits & remove_sign));
 }

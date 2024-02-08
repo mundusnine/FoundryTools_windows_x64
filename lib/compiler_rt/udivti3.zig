@@ -7,9 +7,9 @@ pub const panic = common.panic;
 
 comptime {
     if (common.want_windows_v2u64_abi) {
-        @export(__udivti3_windows_x86_64, .{ .name = "__udivti3", .linkage = common.linkage });
+        @export(__udivti3_windows_x86_64, .{ .name = "__udivti3", .linkage = common.linkage, .visibility = common.visibility });
     } else {
-        @export(__udivti3, .{ .name = "__udivti3", .linkage = common.linkage });
+        @export(__udivti3, .{ .name = "__udivti3", .linkage = common.linkage, .visibility = common.visibility });
     }
 }
 
@@ -20,5 +20,5 @@ pub fn __udivti3(a: u128, b: u128) callconv(.C) u128 {
 const v2u64 = @Vector(2, u64);
 
 fn __udivti3_windows_x86_64(a: v2u64, b: v2u64) callconv(.C) v2u64 {
-    return @bitCast(v2u64, udivmod(u128, @bitCast(u128, a), @bitCast(u128, b), null));
+    return @as(v2u64, @bitCast(udivmod(u128, @as(u128, @bitCast(a)), @as(u128, @bitCast(b)), null)));
 }

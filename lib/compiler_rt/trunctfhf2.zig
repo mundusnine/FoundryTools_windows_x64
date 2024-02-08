@@ -4,9 +4,9 @@ const truncf = @import("./truncf.zig").truncf;
 pub const panic = common.panic;
 
 comptime {
-    @export(__trunctfhf2, .{ .name = "__trunctfhf2", .linkage = common.linkage });
+    @export(__trunctfhf2, .{ .name = "__trunctfhf2", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-pub fn __trunctfhf2(a: f128) callconv(.C) common.F16T {
-    return @bitCast(common.F16T, truncf(f16, f128, a));
+pub fn __trunctfhf2(a: f128) callconv(.C) common.F16T(f128) {
+    return @as(common.F16T(f128), @bitCast(truncf(f16, f128, a)));
 }

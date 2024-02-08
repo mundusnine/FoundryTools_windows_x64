@@ -30,23 +30,23 @@ const table_size = 1 << table_bits; // Size of the table.
 const buffer_reset = math.maxInt(i32) - max_store_block_size * 2;
 
 fn load32(b: []u8, i: i32) u32 {
-    var s = b[@intCast(usize, i) .. @intCast(usize, i) + 4];
-    return @intCast(u32, s[0]) |
-        @intCast(u32, s[1]) << 8 |
-        @intCast(u32, s[2]) << 16 |
-        @intCast(u32, s[3]) << 24;
+    var s = b[@as(usize, @intCast(i)) .. @as(usize, @intCast(i)) + 4];
+    return @as(u32, @intCast(s[0])) |
+        @as(u32, @intCast(s[1])) << 8 |
+        @as(u32, @intCast(s[2])) << 16 |
+        @as(u32, @intCast(s[3])) << 24;
 }
 
 fn load64(b: []u8, i: i32) u64 {
-    var s = b[@intCast(usize, i)..@intCast(usize, i + 8)];
-    return @intCast(u64, s[0]) |
-        @intCast(u64, s[1]) << 8 |
-        @intCast(u64, s[2]) << 16 |
-        @intCast(u64, s[3]) << 24 |
-        @intCast(u64, s[4]) << 32 |
-        @intCast(u64, s[5]) << 40 |
-        @intCast(u64, s[6]) << 48 |
-        @intCast(u64, s[7]) << 56;
+    var s = b[@as(usize, @intCast(i))..@as(usize, @intCast(i + 8))];
+    return @as(u64, @intCast(s[0])) |
+        @as(u64, @intCast(s[1])) << 8 |
+        @as(u64, @intCast(s[2])) << 16 |
+        @as(u64, @intCast(s[3])) << 24 |
+        @as(u64, @intCast(s[4])) << 32 |
+        @as(u64, @intCast(s[5])) << 40 |
+        @as(u64, @intCast(s[6])) << 48 |
+        @as(u64, @intCast(s[7])) << 56;
 }
 
 fn hash(u: u32) u32 {
@@ -117,7 +117,7 @@ pub const DeflateFast = struct {
         // s_limit is when to stop looking for offset/length copies. The input_margin
         // lets us use a fast path for emitLiteral in the main loop, while we are
         // looking for copies.
-        var s_limit = @intCast(i32, src.len - input_margin);
+        var s_limit = @as(i32, @intCast(src.len - input_margin));
 
         // next_emit is where in src the next emitLiteral should start from.
         var next_emit: i32 = 0;
@@ -170,7 +170,7 @@ pub const DeflateFast = struct {
             // A 4-byte match has been found. We'll later see if more than 4 bytes
             // match. But, prior to the match, src[next_emit..s] are unmatched. Emit
             // them as literal bytes.
-            emitLiteral(dst, tokens_count, src[@intCast(usize, next_emit)..@intCast(usize, s)]);
+            emitLiteral(dst, tokens_count, src[@as(usize, @intCast(next_emit))..@as(usize, @intCast(s))]);
 
             // Call emitCopy, and then see if another emitCopy could be our next
             // move. Repeat until we find no match for the input immediately after
@@ -192,8 +192,8 @@ pub const DeflateFast = struct {
 
                 // matchToken is flate's equivalent of Snappy's emitCopy. (length,offset)
                 dst[tokens_count.*] = token.matchToken(
-                    @intCast(u32, l + 4 - base_match_length),
-                    @intCast(u32, s - t - base_match_offset),
+                    @as(u32, @intCast(l + 4 - base_match_length)),
+                    @as(u32, @intCast(s - t - base_match_offset)),
                 );
                 tokens_count.* += 1;
                 s += l;
@@ -209,22 +209,22 @@ pub const DeflateFast = struct {
                 // are faster as one load64 call (with some shifts) instead of
                 // three load32 calls.
                 var x = load64(src, s - 1);
-                var prev_hash = hash(@truncate(u32, x));
+                var prev_hash = hash(@as(u32, @truncate(x)));
                 self.table[prev_hash & table_mask] = TableEntry{
                     .offset = self.cur + s - 1,
-                    .val = @truncate(u32, x),
+                    .val = @as(u32, @truncate(x)),
                 };
                 x >>= 8;
-                var curr_hash = hash(@truncate(u32, x));
+                var curr_hash = hash(@as(u32, @truncate(x)));
                 candidate = self.table[curr_hash & table_mask];
                 self.table[curr_hash & table_mask] = TableEntry{
                     .offset = self.cur + s,
-                    .val = @truncate(u32, x),
+                    .val = @as(u32, @truncate(x)),
                 };
 
                 var offset = s - (candidate.offset - self.cur);
-                if (offset > max_match_offset or @truncate(u32, x) != candidate.val) {
-                    cv = @truncate(u32, x >> 8);
+                if (offset > max_match_offset or @as(u32, @truncate(x)) != candidate.val) {
+                    cv = @as(u32, @truncate(x >> 8));
                     next_hash = hash(cv);
                     s += 1;
                     break;
@@ -232,18 +232,18 @@ pub const DeflateFast = struct {
             }
         }
 
-        if (@intCast(u32, next_emit) < src.len) {
-            emitLiteral(dst, tokens_count, src[@intCast(usize, next_emit)..]);
+        if (@as(u32, @intCast(next_emit)) < src.len) {
+            emitLiteral(dst, tokens_count, src[@as(usize, @intCast(next_emit))..]);
         }
-        self.cur += @intCast(i32, src.len);
-        self.prev_len = @intCast(u32, src.len);
-        mem.copy(u8, self.prev[0..self.prev_len], src);
+        self.cur += @as(i32, @intCast(src.len));
+        self.prev_len = @as(u32, @intCast(src.len));
+        @memcpy(self.prev[0..self.prev_len], src);
         return;
     }
 
     fn emitLiteral(dst: []token.Token, tokens_count: *u16, lit: []u8) void {
         for (lit) |v| {
-            dst[tokens_count.*] = token.literalToken(@intCast(u32, v));
+            dst[tokens_count.*] = token.literalToken(@as(u32, @intCast(v)));
             tokens_count.* += 1;
         }
         return;
@@ -253,60 +253,60 @@ pub const DeflateFast = struct {
     // t can be negative to indicate the match is starting in self.prev.
     // We assume that src[s-4 .. s] and src[t-4 .. t] already match.
     fn matchLen(self: *Self, s: i32, t: i32, src: []u8) i32 {
-        var s1 = @intCast(u32, s) + max_match_length - 4;
+        var s1 = @as(u32, @intCast(s)) + max_match_length - 4;
         if (s1 > src.len) {
-            s1 = @intCast(u32, src.len);
+            s1 = @as(u32, @intCast(src.len));
         }
 
         // If we are inside the current block
         if (t >= 0) {
-            var b = src[@intCast(usize, t)..];
-            var a = src[@intCast(usize, s)..@intCast(usize, s1)];
+            var b = src[@as(usize, @intCast(t))..];
+            var a = src[@as(usize, @intCast(s))..@as(usize, @intCast(s1))];
             b = b[0..a.len];
             // Extend the match to be as long as possible.
-            for (a) |_, i| {
+            for (a, 0..) |_, i| {
                 if (a[i] != b[i]) {
-                    return @intCast(i32, i);
+                    return @as(i32, @intCast(i));
                 }
             }
-            return @intCast(i32, a.len);
+            return @as(i32, @intCast(a.len));
         }
 
         // We found a match in the previous block.
-        var tp = @intCast(i32, self.prev_len) + t;
+        var tp = @as(i32, @intCast(self.prev_len)) + t;
         if (tp < 0) {
             return 0;
         }
 
         // Extend the match to be as long as possible.
-        var a = src[@intCast(usize, s)..@intCast(usize, s1)];
-        var b = self.prev[@intCast(usize, tp)..@intCast(usize, self.prev_len)];
+        var a = src[@as(usize, @intCast(s))..@as(usize, @intCast(s1))];
+        var b = self.prev[@as(usize, @intCast(tp))..@as(usize, @intCast(self.prev_len))];
         if (b.len > a.len) {
             b = b[0..a.len];
         }
         a = a[0..b.len];
-        for (b) |_, i| {
+        for (b, 0..) |_, i| {
             if (a[i] != b[i]) {
-                return @intCast(i32, i);
+                return @as(i32, @intCast(i));
             }
         }
 
         // If we reached our limit, we matched everything we are
         // allowed to in the previous block and we return.
-        var n = @intCast(i32, b.len);
-        if (@intCast(u32, s + n) == s1) {
+        var n = @as(i32, @intCast(b.len));
+        if (@as(u32, @intCast(s + n)) == s1) {
             return n;
         }
 
         // Continue looking for more matches in the current block.
-        a = src[@intCast(usize, s + n)..@intCast(usize, s1)];
+        a = src[@as(usize, @intCast(s + n))..@as(usize, @intCast(s1))];
         b = src[0..a.len];
-        for (a) |_, i| {
+        for (a, 0..) |_, i| {
             if (a[i] != b[i]) {
-                return @intCast(i32, i) + n;
+                return @as(i32, @intCast(i)) + n;
             }
         }
-        return @intCast(i32, a.len) + n;
+        return @as(i32, @intCast(a.len)) + n;
     }
 
     // Reset resets the encoding history.
@@ -330,7 +330,7 @@ pub const DeflateFast = struct {
     fn shiftOffsets(self: *Self) void {
         if (self.prev_len == 0) {
             // We have no history; just clear the table.
-            for (self.table) |_, i| {
+            for (self.table, 0..) |_, i| {
                 self.table[i] = TableEntry{ .val = 0, .offset = 0 };
             }
             self.cur = max_match_offset + 1;
@@ -338,7 +338,7 @@ pub const DeflateFast = struct {
         }
 
         // Shift down everything in the table that isn't already too far away.
-        for (self.table) |_, i| {
+        for (self.table, 0..) |_, i| {
             var v = self.table[i].offset - self.cur + max_match_offset + 1;
             if (v < 0) {
                 // We want to reset self.cur to max_match_offset + 1, so we need to shift
@@ -354,7 +354,7 @@ pub const DeflateFast = struct {
 };
 
 test "best speed match 1/3" {
-    const expect = std.testing.expect;
+    const expectEqual = std.testing.expectEqual;
 
     {
         var previous = [_]u8{ 0, 0, 0, 1, 2 };
@@ -367,7 +367,7 @@ test "best speed match 1/3" {
         };
         var current = [_]u8{ 3, 4, 5, 0, 1, 2, 3, 4, 5 };
         var got: i32 = e.matchLen(3, -3, &current);
-        try expect(got == 6);
+        try expectEqual(@as(i32, 6), got);
     }
     {
         var previous = [_]u8{ 0, 0, 0, 1, 2 };
@@ -380,7 +380,7 @@ test "best speed match 1/3" {
         };
         var current = [_]u8{ 2, 4, 5, 0, 1, 2, 3, 4, 5 };
         var got: i32 = e.matchLen(3, -3, &current);
-        try expect(got == 3);
+        try expectEqual(@as(i32, 3), got);
     }
     {
         var previous = [_]u8{ 0, 0, 0, 1, 1 };
@@ -393,7 +393,7 @@ test "best speed match 1/3" {
         };
         var current = [_]u8{ 3, 4, 5, 0, 1, 2, 3, 4, 5 };
         var got: i32 = e.matchLen(3, -3, &current);
-        try expect(got == 2);
+        try expectEqual(@as(i32, 2), got);
     }
     {
         var previous = [_]u8{ 0, 0, 0, 1, 2 };
@@ -406,7 +406,7 @@ test "best speed match 1/3" {
         };
         var current = [_]u8{ 2, 2, 2, 2, 1, 2, 3, 4, 5 };
         var got: i32 = e.matchLen(0, -1, &current);
-        try expect(got == 4);
+        try expectEqual(@as(i32, 4), got);
     }
     {
         var previous = [_]u8{ 0, 0, 0, 1, 2, 3, 4, 5, 2, 2 };
@@ -419,7 +419,7 @@ test "best speed match 1/3" {
         };
         var current = [_]u8{ 2, 2, 2, 2, 1, 2, 3, 4, 5 };
         var got: i32 = e.matchLen(4, -7, &current);
-        try expect(got == 5);
+        try expectEqual(@as(i32, 5), got);
     }
     {
         var previous = [_]u8{ 9, 9, 9, 9, 9 };
@@ -432,7 +432,7 @@ test "best speed match 1/3" {
         };
         var current = [_]u8{ 2, 2, 2, 2, 1, 2, 3, 4, 5 };
         var got: i32 = e.matchLen(0, -1, &current);
-        try expect(got == 0);
+        try expectEqual(@as(i32, 0), got);
     }
     {
         var previous = [_]u8{ 9, 9, 9, 9, 9 };
@@ -445,12 +445,12 @@ test "best speed match 1/3" {
         };
         var current = [_]u8{ 9, 2, 2, 2, 1, 2, 3, 4, 5 };
         var got: i32 = e.matchLen(1, 0, &current);
-        try expect(got == 0);
+        try expectEqual(@as(i32, 0), got);
     }
 }
 
 test "best speed match 2/3" {
-    const expect = std.testing.expect;
+    const expectEqual = std.testing.expectEqual;
 
     {
         var previous = [_]u8{};
@@ -463,7 +463,7 @@ test "best speed match 2/3" {
         };
         var current = [_]u8{ 9, 2, 2, 2, 1, 2, 3, 4, 5 };
         var got: i32 = e.matchLen(1, -5, &current);
-        try expect(got == 0);
+        try expectEqual(@as(i32, 0), got);
     }
     {
         var previous = [_]u8{};
@@ -476,7 +476,7 @@ test "best speed match 2/3" {
         };
         var current = [_]u8{ 9, 2, 2, 2, 1, 2, 3, 4, 5 };
         var got: i32 = e.matchLen(1, -1, &current);
-        try expect(got == 0);
+        try expectEqual(@as(i32, 0), got);
     }
     {
         var previous = [_]u8{};
@@ -489,7 +489,7 @@ test "best speed match 2/3" {
         };
         var current = [_]u8{ 2, 2, 2, 2, 1, 2, 3, 4, 5 };
         var got: i32 = e.matchLen(1, 0, &current);
-        try expect(got == 3);
+        try expectEqual(@as(i32, 3), got);
     }
     {
         var previous = [_]u8{ 3, 4, 5 };
@@ -502,13 +502,13 @@ test "best speed match 2/3" {
         };
         var current = [_]u8{ 3, 4, 5 };
         var got: i32 = e.matchLen(0, -3, &current);
-        try expect(got == 3);
+        try expectEqual(@as(i32, 3), got);
     }
 }
 
 test "best speed match 2/2" {
     const testing = std.testing;
-    const expect = testing.expect;
+    const expectEqual = testing.expectEqual;
 
     const Case = struct {
         previous: u32,
@@ -566,21 +566,21 @@ test "best speed match 2/2" {
     for (cases) |c| {
         var previous = try testing.allocator.alloc(u8, c.previous);
         defer testing.allocator.free(previous);
-        mem.set(u8, previous, 0);
+        @memset(previous, 0);
 
         var current = try testing.allocator.alloc(u8, c.current);
         defer testing.allocator.free(current);
-        mem.set(u8, current, 0);
+        @memset(current, 0);
 
         var e = DeflateFast{
             .prev = previous,
-            .prev_len = @intCast(u32, previous.len),
+            .prev_len = @as(u32, @intCast(previous.len)),
             .table = undefined,
             .allocator = undefined,
             .cur = 0,
         };
         var got: i32 = e.matchLen(c.s, c.t, current);
-        try expect(got == c.expected);
+        try expectEqual(@as(i32, c.expected), got);
     }
 }
 
@@ -617,22 +617,22 @@ test "best speed shift offsets" {
     try expect(want_first_tokens > want_second_tokens);
 
     // Forward the current indicator to before wraparound.
-    enc.cur = buffer_reset - @intCast(i32, test_data.len);
+    enc.cur = buffer_reset - @as(i32, @intCast(test_data.len));
 
     // Part 1 before wrap, should match clean state.
     tokens_count = 0;
     enc.encode(&tokens, &tokens_count, &test_data);
     var got = tokens_count;
-    try expect(want_first_tokens == got);
+    try testing.expectEqual(want_first_tokens, got);
 
     // Verify we are about to wrap.
-    try expect(enc.cur == buffer_reset);
+    try testing.expectEqual(@as(i32, buffer_reset), enc.cur);
 
     // Part 2 should match clean state as well even if wrapped.
     tokens_count = 0;
     enc.encode(&tokens, &tokens_count, &test_data);
     got = tokens_count;
-    try expect(want_second_tokens == got);
+    try testing.expectEqual(want_second_tokens, got);
 
     // Verify that we wrapped.
     try expect(enc.cur < buffer_reset);
@@ -645,13 +645,12 @@ test "best speed shift offsets" {
     tokens_count = 0;
     enc.encode(&tokens, &tokens_count, &test_data);
     got = tokens_count;
-    try expect(want_first_tokens == got);
+    try testing.expectEqual(want_first_tokens, got);
 }
 
 test "best speed reset" {
     // test that encoding is consistent across a warparound of the table offset.
     // See https://github.com/golang/go/issues/34121
-    const expect = std.testing.expect;
     const fmt = std.fmt;
     const testing = std.testing;
 
@@ -716,6 +715,6 @@ test "best speed reset" {
         try comp.close();
 
         // output must match at wraparound
-        try expect(mem.eql(u8, got.items, want.items));
+        try testing.expectEqualSlices(u8, want.items, got.items);
     }
 }

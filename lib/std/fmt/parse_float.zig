@@ -70,17 +70,10 @@ test "fmt.parseFloat" {
 }
 
 test "fmt.parseFloat nan and inf" {
-    if ((builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm) and
-        builtin.cpu.arch == .aarch64)
-    {
-        // https://github.com/ziglang/zig/issues/12027
-        return error.SkipZigTest;
-    }
-
     inline for ([_]type{ f16, f32, f64, f128 }) |T| {
         const Z = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
 
-        try expectEqual(@bitCast(Z, try parseFloat(T, "nAn")), @bitCast(Z, std.math.nan(T)));
+        try expectEqual(@as(Z, @bitCast(try parseFloat(T, "nAn"))), @as(Z, @bitCast(std.math.nan(T))));
         try expectEqual(try parseFloat(T, "inF"), std.math.inf(T));
         try expectEqual(try parseFloat(T, "-INF"), -std.math.inf(T));
     }
@@ -121,6 +114,7 @@ test "fmt.parseFloat hex.f16" {
 }
 
 test "fmt.parseFloat hex.f32" {
+    try testing.expectError(error.InvalidCharacter, parseFloat(f32, "0x"));
     try testing.expectEqual(try parseFloat(f32, "0x1p0"), 1.0);
     try testing.expectEqual(try parseFloat(f32, "-0x1p-1"), -0.5);
     try testing.expectEqual(try parseFloat(f32, "0x10p+10"), 16384.0);
@@ -150,7 +144,7 @@ test "fmt.parseFloat hex.f64" {
     try testing.expectEqual(try parseFloat(f64, "0x1p-1022"), math.floatMin(f64));
     try testing.expectEqual(try parseFloat(f64, "-0x1p-1022"), -math.floatMin(f64));
     // Min denormalized value.
-    //try testing.expectEqual(try parseFloat(f64, "0x1p-1074"), math.floatTrueMin(f64));
+    try testing.expectEqual(try parseFloat(f64, "0x1p-1074"), math.floatTrueMin(f64));
     try testing.expectEqual(try parseFloat(f64, "-0x1p-1074"), -math.floatTrueMin(f64));
 }
 test "fmt.parseFloat hex.f128" {
@@ -167,7 +161,6 @@ test "fmt.parseFloat hex.f128" {
     // // Min denormalized value.
     try testing.expectEqual(try parseFloat(f128, "0x1p-16494"), math.floatTrueMin(f128));
     try testing.expectEqual(try parseFloat(f128, "-0x1p-16494"), -math.floatTrueMin(f128));
-
-    // NOTE: We are performing round-to-even. Previous behavior was round-up.
-    // try testing.expectEqual(try parseFloat(f128, "0x1.edcb34a235253948765432134674fp-1"), 0x1.edcb34a235253948765432134674fp-1);
+    // ensure round-to-even
+    try testing.expectEqual(try parseFloat(f128, "0x1.edcb34a235253948765432134674fp-1"), 0x1.edcb34a235253948765432134674fp-1);
 }

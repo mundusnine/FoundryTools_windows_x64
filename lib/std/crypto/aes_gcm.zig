@@ -3,6 +3,7 @@ const assert = std.debug.assert;
 const crypto = std.crypto;
 const debug = std.debug;
 const Ghash = std.crypto.onetimeauth.Ghash;
+const math = std.math;
 const mem = std.mem;
 const modes = crypto.core.modes;
 const AuthenticationError = crypto.errors.AuthenticationError;
@@ -30,11 +31,12 @@ fn AesGcm(comptime Aes: anytype) type {
 
             var t: [16]u8 = undefined;
             var j: [16]u8 = undefined;
-            mem.copy(u8, j[0..nonce_length], npub[0..]);
+            j[0..nonce_length].* = npub;
             mem.writeIntBig(u32, j[nonce_length..][0..4], 1);
             aes.encrypt(&t, &j);
 
-            var mac = Ghash.init(&h);
+            const block_count = (math.divCeil(usize, ad.len, Ghash.block_length) catch unreachable) + (math.divCeil(usize, c.len, Ghash.block_length) catch unreachable) + 1;
+            var mac = Ghash.initForBlockCount(&h, block_count);
             mac.update(ad);
             mac.pad();
 
@@ -48,7 +50,7 @@ fn AesGcm(comptime Aes: anytype) type {
             mem.writeIntBig(u64, final_block[8..16], m.len * 8);
             mac.update(&final_block);
             mac.final(tag);
-            for (t) |x, i| {
+            for (t, 0..) |x, i| {
                 tag[i] ^= x;
             }
         }
@@ -62,11 +64,12 @@ fn AesGcm(comptime Aes: anytype) type {
 
             var t: [16]u8 = undefined;
             var j: [16]u8 = undefined;
-            mem.copy(u8, j[0..nonce_length], npub[0..]);
+            j[0..nonce_length].* = npub;
             mem.writeIntBig(u32, j[nonce_length..][0..4], 1);
             aes.encrypt(&t, &j);
 
-            var mac = Ghash.init(&h);
+            const block_count = (math.divCeil(usize, ad.len, Ghash.block_length) catch unreachable) + (math.divCeil(usize, c.len, Ghash.block_length) catch unreachable) + 1;
+            var mac = Ghash.initForBlockCount(&h, block_count);
             mac.update(ad);
             mac.pad();
 
@@ -79,16 +82,16 @@ fn AesGcm(comptime Aes: anytype) type {
             mac.update(&final_block);
             var computed_tag: [Ghash.mac_length]u8 = undefined;
             mac.final(&computed_tag);
-            for (t) |x, i| {
+            for (t, 0..) |x, i| {
                 computed_tag[i] ^= x;
             }
 
             var acc: u8 = 0;
-            for (computed_tag) |_, p| {
+            for (computed_tag, 0..) |_, p| {
                 acc |= (computed_tag[p] ^ tag[p]);
             }
             if (acc != 0) {
-                mem.set(u8, m, 0xaa);
+                @memset(m, undefined);
                 return error.AuthenticationFailed;
             }
 

@@ -1,4 +1,5 @@
-// ARM specific builtins
+//! Implementation of ARM specific builtins for Run-time ABI
+//! This file includes all ARM-only functions.
 const std = @import("std");
 const builtin = @import("builtin");
 const arch = builtin.cpu.arch;
@@ -8,36 +9,39 @@ pub const panic = common.panic;
 
 comptime {
     if (!builtin.is_test) {
-        if (arch.isARM() or arch.isThumb()) {
-            @export(__aeabi_unwind_cpp_pr0, .{ .name = "__aeabi_unwind_cpp_pr0", .linkage = common.linkage });
-            @export(__aeabi_unwind_cpp_pr1, .{ .name = "__aeabi_unwind_cpp_pr1", .linkage = common.linkage });
-            @export(__aeabi_unwind_cpp_pr2, .{ .name = "__aeabi_unwind_cpp_pr2", .linkage = common.linkage });
+        if (arch.isArmOrThumb()) {
+            @export(__aeabi_unwind_cpp_pr0, .{ .name = "__aeabi_unwind_cpp_pr0", .linkage = common.linkage, .visibility = common.visibility });
+            @export(__aeabi_unwind_cpp_pr1, .{ .name = "__aeabi_unwind_cpp_pr1", .linkage = common.linkage, .visibility = common.visibility });
+            @export(__aeabi_unwind_cpp_pr2, .{ .name = "__aeabi_unwind_cpp_pr2", .linkage = common.linkage, .visibility = common.visibility });
 
-            @export(__aeabi_ldivmod, .{ .name = "__aeabi_ldivmod", .linkage = common.linkage });
-            @export(__aeabi_uldivmod, .{ .name = "__aeabi_uldivmod", .linkage = common.linkage });
+            @export(__aeabi_ldivmod, .{ .name = "__aeabi_ldivmod", .linkage = common.linkage, .visibility = common.visibility });
+            @export(__aeabi_uldivmod, .{ .name = "__aeabi_uldivmod", .linkage = common.linkage, .visibility = common.visibility });
 
-            @export(__aeabi_idivmod, .{ .name = "__aeabi_idivmod", .linkage = common.linkage });
-            @export(__aeabi_uidivmod, .{ .name = "__aeabi_uidivmod", .linkage = common.linkage });
+            @export(__aeabi_idivmod, .{ .name = "__aeabi_idivmod", .linkage = common.linkage, .visibility = common.visibility });
+            @export(__aeabi_uidivmod, .{ .name = "__aeabi_uidivmod", .linkage = common.linkage, .visibility = common.visibility });
 
-            @export(__aeabi_memcpy, .{ .name = "__aeabi_memcpy", .linkage = common.linkage });
-            @export(__aeabi_memcpy4, .{ .name = "__aeabi_memcpy4", .linkage = common.linkage });
-            @export(__aeabi_memcpy8, .{ .name = "__aeabi_memcpy8", .linkage = common.linkage });
+            @export(__aeabi_memcpy, .{ .name = "__aeabi_memcpy", .linkage = common.linkage, .visibility = common.visibility });
+            @export(__aeabi_memcpy4, .{ .name = "__aeabi_memcpy4", .linkage = common.linkage, .visibility = common.visibility });
+            @export(__aeabi_memcpy8, .{ .name = "__aeabi_memcpy8", .linkage = common.linkage, .visibility = common.visibility });
 
-            @export(__aeabi_memmove, .{ .name = "__aeabi_memmove", .linkage = common.linkage });
-            @export(__aeabi_memmove4, .{ .name = "__aeabi_memmove4", .linkage = common.linkage });
-            @export(__aeabi_memmove8, .{ .name = "__aeabi_memmove8", .linkage = common.linkage });
+            @export(__aeabi_memmove, .{ .name = "__aeabi_memmove", .linkage = common.linkage, .visibility = common.visibility });
+            @export(__aeabi_memmove4, .{ .name = "__aeabi_memmove4", .linkage = common.linkage, .visibility = common.visibility });
+            @export(__aeabi_memmove8, .{ .name = "__aeabi_memmove8", .linkage = common.linkage, .visibility = common.visibility });
 
-            @export(__aeabi_memset, .{ .name = "__aeabi_memset", .linkage = common.linkage });
-            @export(__aeabi_memset4, .{ .name = "__aeabi_memset4", .linkage = common.linkage });
-            @export(__aeabi_memset8, .{ .name = "__aeabi_memset8", .linkage = common.linkage });
+            @export(__aeabi_memset, .{ .name = "__aeabi_memset", .linkage = common.linkage, .visibility = common.visibility });
+            @export(__aeabi_memset4, .{ .name = "__aeabi_memset4", .linkage = common.linkage, .visibility = common.visibility });
+            @export(__aeabi_memset8, .{ .name = "__aeabi_memset8", .linkage = common.linkage, .visibility = common.visibility });
 
-            @export(__aeabi_memclr, .{ .name = "__aeabi_memclr", .linkage = common.linkage });
-            @export(__aeabi_memclr4, .{ .name = "__aeabi_memclr4", .linkage = common.linkage });
-            @export(__aeabi_memclr8, .{ .name = "__aeabi_memclr8", .linkage = common.linkage });
+            @export(__aeabi_memclr, .{ .name = "__aeabi_memclr", .linkage = common.linkage, .visibility = common.visibility });
+            @export(__aeabi_memclr4, .{ .name = "__aeabi_memclr4", .linkage = common.linkage, .visibility = common.visibility });
+            @export(__aeabi_memclr8, .{ .name = "__aeabi_memclr8", .linkage = common.linkage, .visibility = common.visibility });
 
             if (builtin.os.tag == .linux) {
-                @export(__aeabi_read_tp, .{ .name = "__aeabi_read_tp", .linkage = common.linkage });
+                @export(__aeabi_read_tp, .{ .name = "__aeabi_read_tp", .linkage = common.linkage, .visibility = common.visibility });
             }
+
+            // floating-point helper functions (double-precision reverse subtraction, y – x), see subdf3.zig
+            @export(__aeabi_drsub, .{ .name = "__aeabi_drsub", .linkage = common.linkage, .visibility = common.visibility });
         }
     }
 }
@@ -47,7 +51,7 @@ const __udivmodsi4 = @import("int.zig").__udivmodsi4;
 const __divmoddi4 = @import("int.zig").__divmoddi4;
 const __udivmoddi4 = @import("int.zig").__udivmoddi4;
 
-extern fn memset(dest: ?[*]u8, c: u8, n: usize) ?[*]u8;
+extern fn memset(dest: ?[*]u8, c: i32, n: usize) ?[*]u8;
 extern fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, n: usize) ?[*]u8;
 extern fn memmove(dest: ?[*]u8, src: ?[*]const u8, n: usize) ?[*]u8;
 
@@ -77,17 +81,17 @@ pub fn __aeabi_memmove8(dest: [*]u8, src: [*]u8, n: usize) callconv(.AAPCS) void
     _ = memmove(dest, src, n);
 }
 
-pub fn __aeabi_memset(dest: [*]u8, n: usize, c: u8) callconv(.AAPCS) void {
+pub fn __aeabi_memset(dest: [*]u8, n: usize, c: i32) callconv(.AAPCS) void {
     @setRuntimeSafety(false);
     // This is dentical to the standard `memset` definition but with the last
     // two arguments swapped
     _ = memset(dest, c, n);
 }
-pub fn __aeabi_memset4(dest: [*]u8, n: usize, c: u8) callconv(.AAPCS) void {
+pub fn __aeabi_memset4(dest: [*]u8, n: usize, c: i32) callconv(.AAPCS) void {
     @setRuntimeSafety(false);
     _ = memset(dest, c, n);
 }
-pub fn __aeabi_memset8(dest: [*]u8, n: usize, c: u8) callconv(.AAPCS) void {
+pub fn __aeabi_memset8(dest: [*]u8, n: usize, c: i32) callconv(.AAPCS) void {
     @setRuntimeSafety(false);
     _ = memset(dest, c, n);
 }
@@ -185,4 +189,9 @@ pub fn __aeabi_ldivmod() callconv(.Naked) void {
         \\ pop {r4, pc}
         ::: "memory");
     unreachable;
+}
+
+pub fn __aeabi_drsub(a: f64, b: f64) callconv(.AAPCS) f64 {
+    const neg_a: f64 = @bitCast(@as(u64, @bitCast(a)) ^ (@as(u64, 1) << 63));
+    return b + neg_a;
 }

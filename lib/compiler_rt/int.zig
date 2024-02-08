@@ -9,34 +9,95 @@ const arch = builtin.cpu.arch;
 const is_test = builtin.is_test;
 const common = @import("common.zig");
 const udivmod = @import("udivmod.zig").udivmod;
+const __divti3 = @import("divti3.zig").__divti3;
 
 pub const panic = common.panic;
 
 comptime {
-    @export(__udivmoddi4, .{ .name = "__udivmoddi4", .linkage = common.linkage });
-    @export(__mulsi3, .{ .name = "__mulsi3", .linkage = common.linkage });
-    @export(__divmoddi4, .{ .name = "__divmoddi4", .linkage = common.linkage });
+    @export(__divmodti4, .{ .name = "__divmodti4", .linkage = common.linkage, .visibility = common.visibility });
+    @export(__udivmoddi4, .{ .name = "__udivmoddi4", .linkage = common.linkage, .visibility = common.visibility });
+    @export(__divmoddi4, .{ .name = "__divmoddi4", .linkage = common.linkage, .visibility = common.visibility });
     if (common.want_aeabi) {
-        @export(__aeabi_idiv, .{ .name = "__aeabi_idiv", .linkage = common.linkage });
-        @export(__aeabi_uidiv, .{ .name = "__aeabi_uidiv", .linkage = common.linkage });
+        @export(__aeabi_idiv, .{ .name = "__aeabi_idiv", .linkage = common.linkage, .visibility = common.visibility });
+        @export(__aeabi_uidiv, .{ .name = "__aeabi_uidiv", .linkage = common.linkage, .visibility = common.visibility });
     } else {
-        @export(__divsi3, .{ .name = "__divsi3", .linkage = common.linkage });
-        @export(__udivsi3, .{ .name = "__udivsi3", .linkage = common.linkage });
+        @export(__divsi3, .{ .name = "__divsi3", .linkage = common.linkage, .visibility = common.visibility });
+        @export(__udivsi3, .{ .name = "__udivsi3", .linkage = common.linkage, .visibility = common.visibility });
     }
-    @export(__divdi3, .{ .name = "__divdi3", .linkage = common.linkage });
-    @export(__udivdi3, .{ .name = "__udivdi3", .linkage = common.linkage });
-    @export(__modsi3, .{ .name = "__modsi3", .linkage = common.linkage });
-    @export(__moddi3, .{ .name = "__moddi3", .linkage = common.linkage });
-    @export(__umodsi3, .{ .name = "__umodsi3", .linkage = common.linkage });
-    @export(__umoddi3, .{ .name = "__umoddi3", .linkage = common.linkage });
-    @export(__divmodsi4, .{ .name = "__divmodsi4", .linkage = common.linkage });
-    @export(__udivmodsi4, .{ .name = "__udivmodsi4", .linkage = common.linkage });
+    @export(__divdi3, .{ .name = "__divdi3", .linkage = common.linkage, .visibility = common.visibility });
+    @export(__udivdi3, .{ .name = "__udivdi3", .linkage = common.linkage, .visibility = common.visibility });
+    @export(__modsi3, .{ .name = "__modsi3", .linkage = common.linkage, .visibility = common.visibility });
+    @export(__moddi3, .{ .name = "__moddi3", .linkage = common.linkage, .visibility = common.visibility });
+    @export(__umodsi3, .{ .name = "__umodsi3", .linkage = common.linkage, .visibility = common.visibility });
+    @export(__umoddi3, .{ .name = "__umoddi3", .linkage = common.linkage, .visibility = common.visibility });
+    @export(__divmodsi4, .{ .name = "__divmodsi4", .linkage = common.linkage, .visibility = common.visibility });
+    @export(__udivmodsi4, .{ .name = "__udivmodsi4", .linkage = common.linkage, .visibility = common.visibility });
+}
+
+pub fn __divmodti4(a: i128, b: i128, rem: *i128) callconv(.C) i128 {
+    const d = __divti3(a, b);
+    rem.* = a -% (d * b);
+    return d;
+}
+
+test "test_divmodti4" {
+    const cases = [_][4]i128{
+        [_]i128{ 0, 1, 0, 0 },
+        [_]i128{ 0, -1, 0, 0 },
+        [_]i128{ 2, 1, 2, 0 },
+        [_]i128{ 2, -1, -2, 0 },
+        [_]i128{ -2, 1, -2, 0 },
+        [_]i128{ -2, -1, 2, 0 },
+        [_]i128{ 7, 5, 1, 2 },
+        [_]i128{ -7, 5, -1, -2 },
+        [_]i128{ 19, 5, 3, 4 },
+        [_]i128{ 19, -5, -3, 4 },
+        [_]i128{ @as(i128, @bitCast(@as(u128, 0x80000000000000000000000000000000))), 8, @as(i128, @bitCast(@as(u128, 0xf0000000000000000000000000000000))), 0 },
+        [_]i128{ @as(i128, @bitCast(@as(u128, 0x80000000000000000000000000000007))), 8, @as(i128, @bitCast(@as(u128, 0xf0000000000000000000000000000001))), -1 },
+    };
+
+    for (cases) |case| {
+        try test_one_divmodti4(case[0], case[1], case[2], case[3]);
+    }
+}
+
+fn test_one_divmodti4(a: i128, b: i128, expected_q: i128, expected_r: i128) !void {
+    var r: i128 = undefined;
+    const q: i128 = __divmodti4(a, b, &r);
+    try testing.expect(q == expected_q and r == expected_r);
 }
 
 pub fn __divmoddi4(a: i64, b: i64, rem: *i64) callconv(.C) i64 {
     const d = __divdi3(a, b);
-    rem.* = a -% (d *% b);
+    rem.* = a -% (d * b);
     return d;
+}
+
+test "test_divmoddi4" {
+    const cases = [_][4]i64{
+        [_]i64{ 0, 1, 0, 0 },
+        [_]i64{ 0, -1, 0, 0 },
+        [_]i64{ 2, 1, 2, 0 },
+        [_]i64{ 2, -1, -2, 0 },
+        [_]i64{ -2, 1, -2, 0 },
+        [_]i64{ -2, -1, 2, 0 },
+        [_]i64{ 7, 5, 1, 2 },
+        [_]i64{ -7, 5, -1, -2 },
+        [_]i64{ 19, 5, 3, 4 },
+        [_]i64{ 19, -5, -3, 4 },
+        [_]i64{ @as(i64, @bitCast(@as(u64, 0x8000000000000000))), 8, @as(i64, @bitCast(@as(u64, 0xf000000000000000))), 0 },
+        [_]i64{ @as(i64, @bitCast(@as(u64, 0x8000000000000007))), 8, @as(i64, @bitCast(@as(u64, 0xf000000000000001))), -1 },
+    };
+
+    for (cases) |case| {
+        try test_one_divmoddi4(case[0], case[1], case[2], case[3]);
+    }
+}
+
+fn test_one_divmoddi4(a: i64, b: i64, expected_q: i64, expected_r: i64) !void {
+    var r: i64 = undefined;
+    const q: i64 = __divmoddi4(a, b, &r);
+    try testing.expect(q == expected_q and r == expected_r);
 }
 
 pub fn __udivmoddi4(a: u64, b: u64, maybe_rem: ?*u64) callconv(.C) u64 {
@@ -49,14 +110,14 @@ test "test_udivmoddi4" {
 
 pub fn __divdi3(a: i64, b: i64) callconv(.C) i64 {
     // Set aside the sign of the quotient.
-    const sign = @bitCast(u64, (a ^ b) >> 63);
+    const sign = @as(u64, @bitCast((a ^ b) >> 63));
     // Take absolute value of a and b via abs(x) = (x^(x >> 63)) - (x >> 63).
     const abs_a = (a ^ (a >> 63)) -% (a >> 63);
     const abs_b = (b ^ (b >> 63)) -% (b >> 63);
     // Unsigned division
-    const res = __udivmoddi4(@bitCast(u64, abs_a), @bitCast(u64, abs_b), null);
+    const res = __udivmoddi4(@as(u64, @bitCast(abs_a)), @as(u64, @bitCast(abs_b)), null);
     // Apply sign of quotient to result and return.
-    return @bitCast(i64, (res ^ sign) -% sign);
+    return @as(i64, @bitCast((res ^ sign) -% sign));
 }
 
 test "test_divdi3" {
@@ -68,10 +129,10 @@ test "test_divdi3" {
         [_]i64{ -2, 1, -2 },
         [_]i64{ -2, -1, 2 },
 
-        [_]i64{ @bitCast(i64, @as(u64, 0x8000000000000000)), 1, @bitCast(i64, @as(u64, 0x8000000000000000)) },
-        [_]i64{ @bitCast(i64, @as(u64, 0x8000000000000000)), -1, @bitCast(i64, @as(u64, 0x8000000000000000)) },
-        [_]i64{ @bitCast(i64, @as(u64, 0x8000000000000000)), -2, 0x4000000000000000 },
-        [_]i64{ @bitCast(i64, @as(u64, 0x8000000000000000)), 2, @bitCast(i64, @as(u64, 0xC000000000000000)) },
+        [_]i64{ @as(i64, @bitCast(@as(u64, 0x8000000000000000))), 1, @as(i64, @bitCast(@as(u64, 0x8000000000000000))) },
+        [_]i64{ @as(i64, @bitCast(@as(u64, 0x8000000000000000))), -1, @as(i64, @bitCast(@as(u64, 0x8000000000000000))) },
+        [_]i64{ @as(i64, @bitCast(@as(u64, 0x8000000000000000))), -2, 0x4000000000000000 },
+        [_]i64{ @as(i64, @bitCast(@as(u64, 0x8000000000000000))), 2, @as(i64, @bitCast(@as(u64, 0xC000000000000000))) },
     };
 
     for (cases) |case| {
@@ -90,9 +151,9 @@ pub fn __moddi3(a: i64, b: i64) callconv(.C) i64 {
     const abs_b = (b ^ (b >> 63)) -% (b >> 63);
     // Unsigned division
     var r: u64 = undefined;
-    _ = __udivmoddi4(@bitCast(u64, abs_a), @bitCast(u64, abs_b), &r);
+    _ = __udivmoddi4(@as(u64, @bitCast(abs_a)), @as(u64, @bitCast(abs_b)), &r);
     // Apply the sign of the dividend and return.
-    return (@bitCast(i64, r) ^ (a >> 63)) -% (a >> 63);
+    return (@as(i64, @bitCast(r)) ^ (a >> 63)) -% (a >> 63);
 }
 
 test "test_moddi3" {
@@ -104,12 +165,12 @@ test "test_moddi3" {
         [_]i64{ -5, 3, -2 },
         [_]i64{ -5, -3, -2 },
 
-        [_]i64{ @bitCast(i64, @as(u64, 0x8000000000000000)), 1, 0 },
-        [_]i64{ @bitCast(i64, @as(u64, 0x8000000000000000)), -1, 0 },
-        [_]i64{ @bitCast(i64, @as(u64, 0x8000000000000000)), 2, 0 },
-        [_]i64{ @bitCast(i64, @as(u64, 0x8000000000000000)), -2, 0 },
-        [_]i64{ @bitCast(i64, @as(u64, 0x8000000000000000)), 3, -2 },
-        [_]i64{ @bitCast(i64, @as(u64, 0x8000000000000000)), -3, -2 },
+        [_]i64{ @as(i64, @bitCast(@as(u64, 0x8000000000000000))), 1, 0 },
+        [_]i64{ @as(i64, @bitCast(@as(u64, 0x8000000000000000))), -1, 0 },
+        [_]i64{ @as(i64, @bitCast(@as(u64, 0x8000000000000000))), 2, 0 },
+        [_]i64{ @as(i64, @bitCast(@as(u64, 0x8000000000000000))), -2, 0 },
+        [_]i64{ @as(i64, @bitCast(@as(u64, 0x8000000000000000))), 3, -2 },
+        [_]i64{ @as(i64, @bitCast(@as(u64, 0x8000000000000000))), -3, -2 },
     };
 
     for (cases) |case| {
@@ -164,8 +225,8 @@ test "test_divmodsi4" {
         [_]i32{ 19, 5, 3, 4 },
         [_]i32{ 19, -5, -3, 4 },
 
-        [_]i32{ @bitCast(i32, @as(u32, 0x80000000)), 8, @bitCast(i32, @as(u32, 0xf0000000)), 0 },
-        [_]i32{ @bitCast(i32, @as(u32, 0x80000007)), 8, @bitCast(i32, @as(u32, 0xf0000001)), -1 },
+        [_]i32{ @as(i32, @bitCast(@as(u32, 0x80000000))), 8, @as(i32, @bitCast(@as(u32, 0xf0000000))), 0 },
+        [_]i32{ @as(i32, @bitCast(@as(u32, 0x80000007))), 8, @as(i32, @bitCast(@as(u32, 0xf0000001))), -1 },
     };
 
     for (cases) |case| {
@@ -181,7 +242,7 @@ fn test_one_divmodsi4(a: i32, b: i32, expected_q: i32, expected_r: i32) !void {
 
 pub fn __udivmodsi4(a: u32, b: u32, rem: *u32) callconv(.C) u32 {
     const d = __udivsi3(a, b);
-    rem.* = @bitCast(u32, @bitCast(i32, a) -% (@bitCast(i32, d) * @bitCast(i32, b)));
+    rem.* = @as(u32, @bitCast(@as(i32, @bitCast(a)) -% (@as(i32, @bitCast(d)) * @as(i32, @bitCast(b)))));
     return d;
 }
 
@@ -195,14 +256,14 @@ fn __aeabi_idiv(n: i32, d: i32) callconv(.AAPCS) i32 {
 
 inline fn div_i32(n: i32, d: i32) i32 {
     // Set aside the sign of the quotient.
-    const sign = @bitCast(u32, (n ^ d) >> 31);
+    const sign = @as(u32, @bitCast((n ^ d) >> 31));
     // Take absolute value of a and b via abs(x) = (x^(x >> 31)) - (x >> 31).
     const abs_n = (n ^ (n >> 31)) -% (n >> 31);
     const abs_d = (d ^ (d >> 31)) -% (d >> 31);
     // abs(a) / abs(b)
-    const res = @bitCast(u32, abs_n) / @bitCast(u32, abs_d);
+    const res = @as(u32, @bitCast(abs_n)) / @as(u32, @bitCast(abs_d));
     // Apply sign of quotient to result and return.
-    return @bitCast(i32, (res ^ sign) -% sign);
+    return @as(i32, @bitCast((res ^ sign) -% sign));
 }
 
 test "test_divsi3" {
@@ -214,10 +275,10 @@ test "test_divsi3" {
         [_]i32{ -2, 1, -2 },
         [_]i32{ -2, -1, 2 },
 
-        [_]i32{ @bitCast(i32, @as(u32, 0x80000000)), 1, @bitCast(i32, @as(u32, 0x80000000)) },
-        [_]i32{ @bitCast(i32, @as(u32, 0x80000000)), -1, @bitCast(i32, @as(u32, 0x80000000)) },
-        [_]i32{ @bitCast(i32, @as(u32, 0x80000000)), -2, 0x40000000 },
-        [_]i32{ @bitCast(i32, @as(u32, 0x80000000)), 2, @bitCast(i32, @as(u32, 0xC0000000)) },
+        [_]i32{ @as(i32, @bitCast(@as(u32, 0x80000000))), 1, @as(i32, @bitCast(@as(u32, 0x80000000))) },
+        [_]i32{ @as(i32, @bitCast(@as(u32, 0x80000000))), -1, @as(i32, @bitCast(@as(u32, 0x80000000))) },
+        [_]i32{ @as(i32, @bitCast(@as(u32, 0x80000000))), -2, 0x40000000 },
+        [_]i32{ @as(i32, @bitCast(@as(u32, 0x80000000))), 2, @as(i32, @bitCast(@as(u32, 0xC0000000))) },
     };
 
     for (cases) |case| {
@@ -243,7 +304,7 @@ inline fn div_u32(n: u32, d: u32) u32 {
     // special cases
     if (d == 0) return 0; // ?!
     if (n == 0) return 0;
-    var sr = @bitCast(c_uint, @as(c_int, @clz(d)) - @as(c_int, @clz(n)));
+    var sr = @as(c_uint, @bitCast(@as(c_int, @clz(d)) - @as(c_int, @clz(n))));
     // 0 <= sr <= n_uword_bits - 1 or sr large
     if (sr > n_uword_bits - 1) {
         // d > r
@@ -256,12 +317,12 @@ inline fn div_u32(n: u32, d: u32) u32 {
     sr += 1;
     // 1 <= sr <= n_uword_bits - 1
     // Not a special case
-    var q: u32 = n << @intCast(u5, n_uword_bits - sr);
-    var r: u32 = n >> @intCast(u5, sr);
+    var q: u32 = n << @as(u5, @intCast(n_uword_bits - sr));
+    var r: u32 = n >> @as(u5, @intCast(sr));
     var carry: u32 = 0;
     while (sr > 0) : (sr -= 1) {
         // r:q = ((r:q)  << 1) | carry
-        r = (r << 1) | (q >> @intCast(u5, n_uword_bits - 1));
+        r = (r << 1) | (q >> @as(u5, @intCast(n_uword_bits - 1)));
         q = (q << 1) | carry;
         // carry = 0;
         // if (r.all >= d.all)
@@ -269,9 +330,9 @@ inline fn div_u32(n: u32, d: u32) u32 {
         //      r.all -= d.all;
         //      carry = 1;
         // }
-        const s = @bitCast(i32, d -% r -% 1) >> @intCast(u5, n_uword_bits - 1);
-        carry = @intCast(u32, s & 1);
-        r -= d & @bitCast(u32, s);
+        const s = @as(i32, @bitCast(d -% r -% 1)) >> @as(u5, @intCast(n_uword_bits - 1));
+        carry = @as(u32, @intCast(s & 1));
+        r -= d & @as(u32, @bitCast(s));
     }
     q = (q << 1) | carry;
     return q;
@@ -424,7 +485,7 @@ fn test_one_udivsi3(a: u32, b: u32, expected_q: u32) !void {
 }
 
 pub fn __modsi3(n: i32, d: i32) callconv(.C) i32 {
-    return n -% __divsi3(n, d) *% d;
+    return n -% __divsi3(n, d) * d;
 }
 
 test "test_modsi3" {
@@ -435,11 +496,11 @@ test "test_modsi3" {
         [_]i32{ 5, -3, 2 },
         [_]i32{ -5, 3, -2 },
         [_]i32{ -5, -3, -2 },
-        [_]i32{ @bitCast(i32, @intCast(u32, 0x80000000)), 1, 0x0 },
-        [_]i32{ @bitCast(i32, @intCast(u32, 0x80000000)), 2, 0x0 },
-        [_]i32{ @bitCast(i32, @intCast(u32, 0x80000000)), -2, 0x0 },
-        [_]i32{ @bitCast(i32, @intCast(u32, 0x80000000)), 3, -2 },
-        [_]i32{ @bitCast(i32, @intCast(u32, 0x80000000)), -3, -2 },
+        [_]i32{ @as(i32, @bitCast(@as(u32, @intCast(0x80000000)))), 1, 0x0 },
+        [_]i32{ @as(i32, @bitCast(@as(u32, @intCast(0x80000000)))), 2, 0x0 },
+        [_]i32{ @as(i32, @bitCast(@as(u32, @intCast(0x80000000)))), -2, 0x0 },
+        [_]i32{ @as(i32, @bitCast(@as(u32, @intCast(0x80000000)))), 3, -2 },
+        [_]i32{ @as(i32, @bitCast(@as(u32, @intCast(0x80000000)))), -3, -2 },
     };
 
     for (cases) |case| {
@@ -453,7 +514,7 @@ fn test_one_modsi3(a: i32, b: i32, expected_r: i32) !void {
 }
 
 pub fn __umodsi3(n: u32, d: u32) callconv(.C) u32 {
-    return n -% __udivsi3(n, d) *% d;
+    return n -% __udivsi3(n, d) * d;
 }
 
 test "test_umodsi3" {
@@ -600,60 +661,4 @@ test "test_umodsi3" {
 fn test_one_umodsi3(a: u32, b: u32, expected_r: u32) !void {
     const r: u32 = __umodsi3(a, b);
     try testing.expect(r == expected_r);
-}
-
-pub fn __mulsi3(a: i32, b: i32) callconv(.C) i32 {
-    var ua = @bitCast(u32, a);
-    var ub = @bitCast(u32, b);
-    var r: u32 = 0;
-
-    while (ua > 0) {
-        if ((ua & 1) != 0) r +%= ub;
-        ua >>= 1;
-        ub <<= 1;
-    }
-
-    return @bitCast(i32, r);
-}
-
-fn test_one_mulsi3(a: i32, b: i32, result: i32) !void {
-    try testing.expectEqual(result, __mulsi3(a, b));
-}
-
-test "mulsi3" {
-    try test_one_mulsi3(0, 0, 0);
-    try test_one_mulsi3(0, 1, 0);
-    try test_one_mulsi3(1, 0, 0);
-    try test_one_mulsi3(0, 10, 0);
-    try test_one_mulsi3(10, 0, 0);
-    try test_one_mulsi3(0, maxInt(i32), 0);
-    try test_one_mulsi3(maxInt(i32), 0, 0);
-    try test_one_mulsi3(0, -1, 0);
-    try test_one_mulsi3(-1, 0, 0);
-    try test_one_mulsi3(0, -10, 0);
-    try test_one_mulsi3(-10, 0, 0);
-    try test_one_mulsi3(0, minInt(i32), 0);
-    try test_one_mulsi3(minInt(i32), 0, 0);
-    try test_one_mulsi3(1, 1, 1);
-    try test_one_mulsi3(1, 10, 10);
-    try test_one_mulsi3(10, 1, 10);
-    try test_one_mulsi3(1, maxInt(i32), maxInt(i32));
-    try test_one_mulsi3(maxInt(i32), 1, maxInt(i32));
-    try test_one_mulsi3(1, -1, -1);
-    try test_one_mulsi3(1, -10, -10);
-    try test_one_mulsi3(-10, 1, -10);
-    try test_one_mulsi3(1, minInt(i32), minInt(i32));
-    try test_one_mulsi3(minInt(i32), 1, minInt(i32));
-    try test_one_mulsi3(46340, 46340, 2147395600);
-    try test_one_mulsi3(-46340, 46340, -2147395600);
-    try test_one_mulsi3(46340, -46340, -2147395600);
-    try test_one_mulsi3(-46340, -46340, 2147395600);
-    try test_one_mulsi3(4194303, 8192, @truncate(i32, 34359730176));
-    try test_one_mulsi3(-4194303, 8192, @truncate(i32, -34359730176));
-    try test_one_mulsi3(4194303, -8192, @truncate(i32, -34359730176));
-    try test_one_mulsi3(-4194303, -8192, @truncate(i32, 34359730176));
-    try test_one_mulsi3(8192, 4194303, @truncate(i32, 34359730176));
-    try test_one_mulsi3(-8192, 4194303, @truncate(i32, -34359730176));
-    try test_one_mulsi3(8192, -4194303, @truncate(i32, -34359730176));
-    try test_one_mulsi3(-8192, -4194303, @truncate(i32, 34359730176));
 }

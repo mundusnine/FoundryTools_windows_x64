@@ -18,17 +18,17 @@ pub fn next_f64(random: Random, comptime tables: ZigTable) f64 {
         // We manually construct a float from parts as we can avoid an extra random lookup here by
         // using the unused exponent for the lookup table entry.
         const bits = random.int(u64);
-        const i = @as(usize, @truncate(u8, bits));
+        const i = @as(usize, @as(u8, @truncate(bits)));
 
         const u = blk: {
             if (tables.is_symmetric) {
                 // Generate a value in the range [2, 4) and scale into [-1, 1)
                 const repr = ((0x3ff + 1) << 52) | (bits >> 12);
-                break :blk @bitCast(f64, repr) - 3.0;
+                break :blk @as(f64, @bitCast(repr)) - 3.0;
             } else {
                 // Generate a value in the range [1, 2) and scale into (0, 1)
                 const repr = (0x3ff << 52) | (bits >> 12);
-                break :blk @bitCast(f64, repr) - (1.0 - math.floatEps(f64) / 2.0);
+                break :blk @as(f64, @bitCast(repr)) - (1.0 - math.floatEps(f64) / 2.0);
             }
         };
 
@@ -65,7 +65,7 @@ pub const ZigTable = struct {
 };
 
 // zigNorInit
-fn ZigTableGen(
+pub fn ZigTableGen(
     comptime is_symmetric: bool,
     comptime r: f64,
     comptime v: f64,
@@ -83,13 +83,13 @@ fn ZigTableGen(
     tables.x[0] = v / f(r);
     tables.x[1] = r;
 
-    for (tables.x[2..256]) |*entry, i| {
+    for (tables.x[2..256], 0..) |*entry, i| {
         const last = tables.x[2 + i - 1];
         entry.* = f_inv(v / last + f(last));
     }
     tables.x[256] = 0;
 
-    for (tables.f[0..]) |*entry, i| {
+    for (tables.f[0..], 0..) |*entry, i| {
         entry.* = f(tables.x[i]);
     }
 
@@ -102,16 +102,16 @@ pub const NormDist = blk: {
     break :blk ZigTableGen(true, norm_r, norm_v, norm_f, norm_f_inv, norm_zero_case);
 };
 
-const norm_r = 3.6541528853610088;
-const norm_v = 0.00492867323399;
+pub const norm_r = 3.6541528853610088;
+pub const norm_v = 0.00492867323399;
 
-fn norm_f(x: f64) f64 {
+pub fn norm_f(x: f64) f64 {
     return @exp(-x * x / 2.0);
 }
-fn norm_f_inv(y: f64) f64 {
+pub fn norm_f_inv(y: f64) f64 {
     return @sqrt(-2.0 * @log(y));
 }
-fn norm_zero_case(random: Random, u: f64) f64 {
+pub fn norm_zero_case(random: Random, u: f64) f64 {
     var x: f64 = 1;
     var y: f64 = 0;
 
@@ -127,11 +127,7 @@ fn norm_zero_case(random: Random, u: f64) f64 {
     }
 }
 
-const please_windows_dont_oom = builtin.os.tag == .windows;
-
 test "normal dist sanity" {
-    if (please_windows_dont_oom) return error.SkipZigTest;
-
     var prng = std.rand.DefaultPrng.init(0);
     const random = prng.random();
 
@@ -147,22 +143,20 @@ pub const ExpDist = blk: {
     break :blk ZigTableGen(false, exp_r, exp_v, exp_f, exp_f_inv, exp_zero_case);
 };
 
-const exp_r = 7.69711747013104972;
-const exp_v = 0.0039496598225815571993;
+pub const exp_r = 7.69711747013104972;
+pub const exp_v = 0.0039496598225815571993;
 
-fn exp_f(x: f64) f64 {
+pub fn exp_f(x: f64) f64 {
     return @exp(-x);
 }
-fn exp_f_inv(y: f64) f64 {
+pub fn exp_f_inv(y: f64) f64 {
     return -@log(y);
 }
-fn exp_zero_case(random: Random, _: f64) f64 {
+pub fn exp_zero_case(random: Random, _: f64) f64 {
     return exp_r - @log(random.float(f64));
 }
 
-test "exp dist sanity" {
-    if (please_windows_dont_oom) return error.SkipZigTest;
-
+test "exp dist smoke test" {
     var prng = std.rand.DefaultPrng.init(0);
     const random = prng.random();
 
@@ -172,8 +166,6 @@ test "exp dist sanity" {
     }
 }
 
-test "table gen" {
-    if (please_windows_dont_oom) return error.SkipZigTest;
-
+test {
     _ = NormDist;
 }

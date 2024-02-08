@@ -1,12 +1,12 @@
 const common = @import("./common.zig");
-const intToFloat = @import("./int_to_float.zig").intToFloat;
+const floatFromInt = @import("./float_from_int.zig").floatFromInt;
 
 pub const panic = common.panic;
 
 comptime {
-    @export(__floatdihf, .{ .name = "__floatdihf", .linkage = common.linkage });
+    @export(__floatdihf, .{ .name = "__floatdihf", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 fn __floatdihf(a: i64) callconv(.C) f16 {
-    return intToFloat(f16, a);
+    return floatFromInt(f16, a);
 }

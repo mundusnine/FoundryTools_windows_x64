@@ -5,16 +5,16 @@ pub const panic = common.panic;
 
 comptime {
     if (common.want_aeabi) {
-        @export(__aeabi_d2h, .{ .name = "__aeabi_d2h", .linkage = common.linkage });
+        @export(__aeabi_d2h, .{ .name = "__aeabi_d2h", .linkage = common.linkage, .visibility = common.visibility });
     } else {
-        @export(__truncdfhf2, .{ .name = "__truncdfhf2", .linkage = common.linkage });
+        @export(__truncdfhf2, .{ .name = "__truncdfhf2", .linkage = common.linkage, .visibility = common.visibility });
     }
 }
 
-pub fn __truncdfhf2(a: f64) callconv(.C) common.F16T {
-    return @bitCast(common.F16T, truncf(f16, f64, a));
+pub fn __truncdfhf2(a: f64) callconv(.C) common.F16T(f64) {
+    return @as(common.F16T(f64), @bitCast(truncf(f16, f64, a)));
 }
 
 fn __aeabi_d2h(a: f64) callconv(.AAPCS) u16 {
-    return @bitCast(common.F16T, truncf(f16, f64, a));
+    return @as(common.F16T(f64), @bitCast(truncf(f16, f64, a)));
 }

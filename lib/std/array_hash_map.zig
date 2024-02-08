@@ -49,12 +49,12 @@ pub fn eqlString(a: []const u8, b: []const u8) bool {
 }
 
 pub fn hashString(s: []const u8) u32 {
-    return @truncate(u32, std.hash.Wyhash.hash(0, s));
+    return @as(u32, @truncate(std.hash.Wyhash.hash(0, s)));
 }
 
 /// Insertion order is preserved.
 /// Deletions perform a "swap removal" on the entries list.
-/// Modifying the hash map while iterating is allowed, however one must understand
+/// Modifying the hash map while iterating is allowed, however, one must understand
 /// the (well defined) behavior when mixing insertions and deletions with iteration.
 /// For a hash map that can be initialized directly that does not store an Allocator
 /// field, see `ArrayHashMapUnmanaged`.
@@ -216,7 +216,7 @@ pub fn ArrayHashMap(
 
         /// Returns the number of total elements which may be present before it is
         /// no longer guaranteed that no allocations will be performed.
-        pub fn capacity(self: *Self) usize {
+        pub fn capacity(self: Self) usize {
             return self.unmanaged.capacity();
         }
 
@@ -399,6 +399,14 @@ pub fn ArrayHashMap(
             return other.promoteContext(allocator, ctx);
         }
 
+        /// Set the map to an empty state, making deinitialization a no-op, and
+        /// returning a copy of the original.
+        pub fn move(self: *Self) Self {
+            const result = self.*;
+            self.unmanaged = .{};
+            return result;
+        }
+
         /// Rebuilds the key indexes. If the underlying entries has been modified directly, users
         /// can call `reIndex` to update the indexes to account for these new entries.
         pub fn reIndex(self: *Self) !void {
@@ -440,7 +448,7 @@ pub fn ArrayHashMap(
 /// General purpose hash table.
 /// Insertion order is preserved.
 /// Deletions perform a "swap removal" on the entries list.
-/// Modifying the hash map while iterating is allowed, however one must understand
+/// Modifying the hash map while iterating is allowed, however, one must understand
 /// the (well defined) behavior when mixing insertions and deletions with iteration.
 /// This type does not store an Allocator field - the Allocator must be passed in
 /// with each function call that requires it. See `ArrayHashMap` for a type that stores
@@ -570,9 +578,9 @@ pub fn ArrayHashMapUnmanaged(
             self.entries.len = 0;
             if (self.index_header) |header| {
                 switch (header.capacityIndexType()) {
-                    .u8 => mem.set(Index(u8), header.indexes(u8), Index(u8).empty),
-                    .u16 => mem.set(Index(u16), header.indexes(u16), Index(u16).empty),
-                    .u32 => mem.set(Index(u32), header.indexes(u32), Index(u32).empty),
+                    .u8 => @memset(header.indexes(u8), Index(u8).empty),
+                    .u16 => @memset(header.indexes(u16), Index(u16).empty),
+                    .u32 => @memset(header.indexes(u32), Index(u32).empty),
                 }
             }
         }
@@ -609,7 +617,7 @@ pub fn ArrayHashMapUnmanaged(
             return .{
                 .keys = slice.items(.key).ptr,
                 .values = slice.items(.value).ptr,
-                .len = @intCast(u32, slice.len),
+                .len = @as(u32, @intCast(slice.len)),
             };
         }
         pub const Iterator = struct {
@@ -707,7 +715,7 @@ pub fn ArrayHashMapUnmanaged(
                 const slice = self.entries.slice();
                 const hashes_array = slice.items(.hash);
                 const keys_array = slice.items(.key);
-                for (keys_array) |*item_key, i| {
+                for (keys_array, 0..) |*item_key, i| {
                     if (hashes_array[i] == h and checkedEql(ctx, key, item_key.*, i)) {
                         return GetOrPutResult{
                             .key_ptr = item_key,
@@ -720,7 +728,7 @@ pub fn ArrayHashMapUnmanaged(
                 }
 
                 const index = self.entries.addOneAssumeCapacity();
-                // unsafe indexing because the length changed
+                // The slice length changed, so we directly index the pointer.
                 if (store_hash) hashes_array.ptr[index] = h;
 
                 return GetOrPutResult{
@@ -807,9 +815,9 @@ pub fn ArrayHashMapUnmanaged(
         /// no longer guaranteed that no allocations will be performed.
         pub fn capacity(self: Self) usize {
             const entry_cap = self.entries.capacity;
-            const header = self.index_header orelse return math.min(linear_scan_max, entry_cap);
+            const header = self.index_header orelse return @min(linear_scan_max, entry_cap);
             const indexes_cap = header.capacity();
-            return math.min(entry_cap, indexes_cap);
+            return @min(entry_cap, indexes_cap);
         }
 
         /// Clobbers any existing data. To detect if a put would clobber
@@ -938,7 +946,7 @@ pub fn ArrayHashMapUnmanaged(
                 const slice = self.entries.slice();
                 const hashes_array = slice.items(.hash);
                 const keys_array = slice.items(.key);
-                for (keys_array) |*item_key, i| {
+                for (keys_array, 0..) |*item_key, i| {
                     if (hashes_array[i] == h and checkedEql(ctx, key, item_key.*, i)) {
                         return i;
                     }
@@ -1137,7 +1145,8 @@ pub fn ArrayHashMapUnmanaged(
         }
 
         /// Create a copy of the hash map which can be modified separately.
-        /// The copy uses the same context and allocator as this instance.
+        /// The copy uses the same context as this instance, but is allocated
+        /// with the provided allocator.
         pub fn clone(self: Self, allocator: Allocator) !Self {
             if (@sizeOf(ByIndexContext) != 0)
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call cloneContext instead.");
@@ -1149,11 +1158,21 @@ pub fn ArrayHashMapUnmanaged(
             errdefer other.entries.deinit(allocator);
 
             if (self.index_header) |header| {
+                // TODO: I'm pretty sure this could be memcpy'd instead of
+                // doing all this work.
                 const new_header = try IndexHeader.alloc(allocator, header.bit_index);
                 other.insertAllEntriesIntoNewHeader(if (store_hash) {} else ctx, new_header);
                 other.index_header = new_header;
             }
             return other;
+        }
+
+        /// Set the map to an empty state, making deinitialization a no-op, and
+        /// returning a copy of the original.
+        pub fn move(self: *Self) Self {
+            const result = self.*;
+            self.* = .{};
+            return result;
         }
 
         /// Rebuilds the key indexes. If the underlying entries has been modified directly, users
@@ -1163,6 +1182,7 @@ pub fn ArrayHashMapUnmanaged(
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call reIndexContext instead.");
             return self.reIndexContext(allocator, undefined);
         }
+
         pub fn reIndexContext(self: *Self, allocator: Allocator, ctx: Context) !void {
             if (self.entries.capacity <= linear_scan_max) return;
             // We're going to rebuild the index header and replace the existing one (if any). The
@@ -1265,7 +1285,7 @@ pub fn ArrayHashMapUnmanaged(
                 const slice = self.entries.slice();
                 const hashes_array = if (store_hash) slice.items(.hash) else {};
                 const keys_array = slice.items(.key);
-                for (keys_array) |*item_key, i| {
+                for (keys_array, 0..) |*item_key, i| {
                     const hash_match = if (store_hash) hashes_array[i] == key_hash else true;
                     if (hash_match and key_ctx.eql(key, item_key.*, i)) {
                         const removed_entry: KV = .{
@@ -1306,7 +1326,7 @@ pub fn ArrayHashMapUnmanaged(
                 const slice = self.entries.slice();
                 const hashes_array = if (store_hash) slice.items(.hash) else {};
                 const keys_array = slice.items(.key);
-                for (keys_array) |*item_key, i| {
+                for (keys_array, 0..) |*item_key, i| {
                     const hash_match = if (store_hash) hashes_array[i] == key_hash else true;
                     if (hash_match and key_ctx.eql(key, item_key.*, i)) {
                         switch (removal_type) {
@@ -1389,7 +1409,7 @@ pub fn ArrayHashMapUnmanaged(
             indexes: []Index(I),
         ) void {
             const slot = self.getSlotByIndex(old_entry_index, ctx, header, I, indexes);
-            indexes[slot].entry_index = @intCast(I, new_entry_index);
+            indexes[slot].entry_index = @as(I, @intCast(new_entry_index));
         }
 
         fn removeFromIndexByIndex(self: *Self, entry_index: usize, ctx: ByIndexContext, header: *IndexHeader) void {
@@ -1488,7 +1508,7 @@ pub fn ArrayHashMapUnmanaged(
                     const new_index = self.entries.addOneAssumeCapacity();
                     indexes[slot] = .{
                         .distance_from_start_index = distance_from_start_index,
-                        .entry_index = @intCast(I, new_index),
+                        .entry_index = @as(I, @intCast(new_index)),
                     };
 
                     // update the hash if applicable
@@ -1529,7 +1549,7 @@ pub fn ArrayHashMapUnmanaged(
                     const new_index = self.entries.addOneAssumeCapacity();
                     if (store_hash) hashes_array.ptr[new_index] = h;
                     indexes[slot] = .{
-                        .entry_index = @intCast(I, new_index),
+                        .entry_index = @as(I, @intCast(new_index)),
                         .distance_from_start_index = distance_from_start_index,
                     };
                     distance_from_start_index = slot_data.distance_from_start_index;
@@ -1614,12 +1634,12 @@ pub fn ArrayHashMapUnmanaged(
             const items = if (store_hash) slice.items(.hash) else slice.items(.key);
             const indexes = header.indexes(I);
 
-            entry_loop: for (items) |key, i| {
+            entry_loop: for (items, 0..) |key, i| {
                 const h = if (store_hash) key else checkedHash(ctx, key);
                 const start_index = safeTruncate(usize, h);
                 const end_index = start_index +% indexes.len;
                 var index = start_index;
-                var entry_index = @intCast(I, i);
+                var entry_index = @as(I, @intCast(i));
                 var distance_from_start_index: I = 0;
                 while (index != end_index) : ({
                     index +%= 1;
@@ -1649,8 +1669,9 @@ pub fn ArrayHashMapUnmanaged(
 
         inline fn checkedHash(ctx: anytype, key: anytype) u32 {
             comptime std.hash_map.verifyContext(@TypeOf(ctx), @TypeOf(key), K, u32, true);
-            // If you get a compile error on the next line, it means that
-            const hash = ctx.hash(key); // your generic hash function doesn't accept your key
+            // If you get a compile error on the next line, it means that your
+            // generic hash function doesn't accept your key.
+            const hash = ctx.hash(key);
             if (@TypeOf(hash) != u32) {
                 @compileError("Context " ++ @typeName(@TypeOf(ctx)) ++ " has a generic hash function that returns the wrong type!\n" ++
                     @typeName(u32) ++ " was expected, but found " ++ @typeName(@TypeOf(hash)));
@@ -1659,8 +1680,9 @@ pub fn ArrayHashMapUnmanaged(
         }
         inline fn checkedEql(ctx: anytype, a: anytype, b: K, b_index: usize) bool {
             comptime std.hash_map.verifyContext(@TypeOf(ctx), @TypeOf(a), K, u32, true);
-            // If you get a compile error on the next line, it means that
-            const eql = ctx.eql(a, b, b_index); // your generic eql function doesn't accept (self, adapt key, K, index)
+            // If you get a compile error on the next line, it means that your
+            // generic eql function doesn't accept (self, adapt key, K, index).
+            const eql = ctx.eql(a, b, b_index);
             if (@TypeOf(eql) != bool) {
                 @compileError("Context " ++ @typeName(@TypeOf(ctx)) ++ " has a generic eql function that returns the wrong type!\n" ++
                     @typeName(bool) ++ " was expected, but found " ++ @typeName(@TypeOf(eql)));
@@ -1710,7 +1732,7 @@ pub fn ArrayHashMapUnmanaged(
             const indexes = header.indexes(I);
             if (indexes.len == 0) return;
             var is_empty = false;
-            for (indexes) |idx, i| {
+            for (indexes, 0..) |idx, i| {
                 if (idx.isEmpty()) {
                     is_empty = true;
                 } else {
@@ -1756,7 +1778,7 @@ fn capacityIndexSize(bit_index: u8) usize {
 fn safeTruncate(comptime T: type, val: anytype) T {
     if (@bitSizeOf(T) >= @bitSizeOf(@TypeOf(val)))
         return val;
-    return @truncate(T, val);
+    return @as(T, @truncate(val));
 }
 
 /// A single entry in the lookup acceleration structure.  These structs
@@ -1801,12 +1823,12 @@ fn Index(comptime I: type) type {
 /// length * the size of an Index(u32).  The index is 8 bytes (3 bits repr)
 /// and max_usize + 1 is not representable, so we need to subtract out 4 bits.
 const max_representable_index_len = @bitSizeOf(usize) - 4;
-const max_bit_index = math.min(32, max_representable_index_len);
+const max_bit_index = @min(32, max_representable_index_len);
 const min_bit_index = 5;
 const max_capacity = (1 << max_bit_index) - 1;
 const index_capacities = blk: {
     var caps: [max_bit_index + 1]u32 = undefined;
-    for (caps[0..max_bit_index]) |*item, i| {
+    for (caps[0..max_bit_index], 0..) |*item, i| {
         item.* = (1 << i) * 3 / 5;
     }
     caps[max_bit_index] = max_capacity;
@@ -1832,13 +1854,13 @@ const IndexHeader = struct {
     fn constrainIndex(header: IndexHeader, i: usize) usize {
         // This is an optimization for modulo of power of two integers;
         // it requires `indexes_len` to always be a power of two.
-        return @intCast(usize, i & header.mask());
+        return @as(usize, @intCast(i & header.mask()));
     }
 
     /// Returns the attached array of indexes.  I must match the type
     /// returned by capacityIndexType.
     fn indexes(header: *IndexHeader, comptime I: type) []Index(I) {
-        const start_ptr = @ptrCast([*]Index(I), @ptrCast([*]u8, header) + @sizeOf(IndexHeader));
+        const start_ptr: [*]Index(I) = @alignCast(@ptrCast(@as([*]u8, @ptrCast(header)) + @sizeOf(IndexHeader)));
         return start_ptr[0..header.length()];
     }
 
@@ -1851,15 +1873,15 @@ const IndexHeader = struct {
         return index_capacities[self.bit_index];
     }
     fn length(self: IndexHeader) usize {
-        return @as(usize, 1) << @intCast(math.Log2Int(usize), self.bit_index);
+        return @as(usize, 1) << @as(math.Log2Int(usize), @intCast(self.bit_index));
     }
     fn mask(self: IndexHeader) u32 {
-        return @intCast(u32, self.length() - 1);
+        return @as(u32, @intCast(self.length() - 1));
     }
 
     fn findBitIndex(desired_capacity: usize) !u8 {
         if (desired_capacity > max_capacity) return error.OutOfMemory;
-        var new_bit_index = @intCast(u8, std.math.log2_int_ceil(usize, desired_capacity));
+        var new_bit_index = @as(u8, @intCast(std.math.log2_int_ceil(usize, desired_capacity)));
         if (desired_capacity > index_capacities[new_bit_index]) new_bit_index += 1;
         if (new_bit_index < min_bit_index) new_bit_index = min_bit_index;
         assert(desired_capacity <= index_capacities[new_bit_index]);
@@ -1869,12 +1891,12 @@ const IndexHeader = struct {
     /// Allocates an index header, and fills the entryIndexes array with empty.
     /// The distance array contents are undefined.
     fn alloc(allocator: Allocator, new_bit_index: u8) !*IndexHeader {
-        const len = @as(usize, 1) << @intCast(math.Log2Int(usize), new_bit_index);
+        const len = @as(usize, 1) << @as(math.Log2Int(usize), @intCast(new_bit_index));
         const index_size = hash_map.capacityIndexSize(new_bit_index);
         const nbytes = @sizeOf(IndexHeader) + index_size * len;
-        const bytes = try allocator.allocAdvanced(u8, @alignOf(IndexHeader), nbytes, .exact);
-        @memset(bytes.ptr + @sizeOf(IndexHeader), 0xff, bytes.len - @sizeOf(IndexHeader));
-        const result = @ptrCast(*IndexHeader, bytes.ptr);
+        const bytes = try allocator.alignedAlloc(u8, @alignOf(IndexHeader), nbytes);
+        @memset(bytes[@sizeOf(IndexHeader)..], 0xff);
+        const result: *IndexHeader = @alignCast(@ptrCast(bytes.ptr));
         result.* = .{
             .bit_index = new_bit_index,
         };
@@ -1884,7 +1906,7 @@ const IndexHeader = struct {
     /// Releases the memory for a header and its associated arrays.
     fn free(header: *IndexHeader, allocator: Allocator) void {
         const index_size = hash_map.capacityIndexSize(header.bit_index);
-        const ptr = @ptrCast([*]align(@alignOf(IndexHeader)) u8, header);
+        const ptr: [*]align(@alignOf(IndexHeader)) u8 = @ptrCast(header);
         const slice = ptr[0 .. @sizeOf(IndexHeader) + header.length() * index_size];
         allocator.free(slice);
     }
@@ -1892,9 +1914,9 @@ const IndexHeader = struct {
     /// Puts an IndexHeader into the state that it would be in after being freshly allocated.
     fn reset(header: *IndexHeader) void {
         const index_size = hash_map.capacityIndexSize(header.bit_index);
-        const ptr = @ptrCast([*]align(@alignOf(IndexHeader)) u8, header);
+        const ptr: [*]align(@alignOf(IndexHeader)) u8 = @ptrCast(header);
         const nbytes = @sizeOf(IndexHeader) + header.length() * index_size;
-        @memset(ptr + @sizeOf(IndexHeader), 0xff, nbytes - @sizeOf(IndexHeader));
+        @memset(ptr[@sizeOf(IndexHeader)..nbytes], 0xff);
     }
 
     // Verify that the header has sufficient alignment to produce aligned arrays.
@@ -2000,25 +2022,25 @@ test "iterator hash map" {
 
     var count: usize = 0;
     while (it.next()) |entry| : (count += 1) {
-        buffer[@intCast(usize, entry.key_ptr.*)] = entry.value_ptr.*;
+        buffer[@as(usize, @intCast(entry.key_ptr.*))] = entry.value_ptr.*;
     }
     try testing.expect(count == 3);
     try testing.expect(it.next() == null);
 
-    for (buffer) |_, i| {
-        try testing.expect(buffer[@intCast(usize, keys[i])] == values[i]);
+    for (buffer, 0..) |_, i| {
+        try testing.expect(buffer[@as(usize, @intCast(keys[i]))] == values[i]);
     }
 
     it.reset();
     count = 0;
     while (it.next()) |entry| {
-        buffer[@intCast(usize, entry.key_ptr.*)] = entry.value_ptr.*;
+        buffer[@as(usize, @intCast(entry.key_ptr.*))] = entry.value_ptr.*;
         count += 1;
         if (count >= 2) break;
     }
 
-    for (buffer[0..2]) |_, i| {
-        try testing.expect(buffer[@intCast(usize, keys[i])] == values[i]);
+    for (buffer[0..2], 0..) |_, i| {
+        try testing.expect(buffer[@as(usize, @intCast(keys[i]))] == values[i]);
     }
 
     it.reset();
@@ -2251,13 +2273,13 @@ test "reIndex" {
 test "auto store_hash" {
     const HasCheapEql = AutoArrayHashMap(i32, i32);
     const HasExpensiveEql = AutoArrayHashMap([32]i32, i32);
-    try testing.expect(meta.fieldInfo(HasCheapEql.Data, .hash).field_type == void);
-    try testing.expect(meta.fieldInfo(HasExpensiveEql.Data, .hash).field_type != void);
+    try testing.expect(meta.fieldInfo(HasCheapEql.Data, .hash).type == void);
+    try testing.expect(meta.fieldInfo(HasExpensiveEql.Data, .hash).type != void);
 
     const HasCheapEqlUn = AutoArrayHashMapUnmanaged(i32, i32);
     const HasExpensiveEqlUn = AutoArrayHashMapUnmanaged([32]i32, i32);
-    try testing.expect(meta.fieldInfo(HasCheapEqlUn.Data, .hash).field_type == void);
-    try testing.expect(meta.fieldInfo(HasExpensiveEqlUn.Data, .hash).field_type != void);
+    try testing.expect(meta.fieldInfo(HasCheapEqlUn.Data, .hash).type == void);
+    try testing.expect(meta.fieldInfo(HasExpensiveEqlUn.Data, .hash).type != void);
 }
 
 test "sort" {
@@ -2279,7 +2301,7 @@ test "sort" {
     map.sort(C{ .keys = map.keys() });
 
     var x: i32 = 1;
-    for (map.keys()) |key, i| {
+    for (map.keys(), 0..) |key, i| {
         try testing.expect(key == x);
         try testing.expect(map.values()[i] == x * 3);
         x += 1;
@@ -2290,7 +2312,7 @@ pub fn getHashPtrAddrFn(comptime K: type, comptime Context: type) (fn (Context, 
     return struct {
         fn hash(ctx: Context, key: K) u32 {
             _ = ctx;
-            return getAutoHashFn(usize, void)({}, @ptrToInt(key));
+            return getAutoHashFn(usize, void)({}, @intFromPtr(key));
         }
     }.hash;
 }
@@ -2316,11 +2338,11 @@ pub fn getAutoHashFn(comptime K: type, comptime Context: type) (fn (Context, K) 
         fn hash(ctx: Context, key: K) u32 {
             _ = ctx;
             if (comptime trait.hasUniqueRepresentation(K)) {
-                return @truncate(u32, Wyhash.hash(0, std.mem.asBytes(&key)));
+                return @as(u32, @truncate(Wyhash.hash(0, std.mem.asBytes(&key))));
             } else {
                 var hasher = Wyhash.init(0);
                 autoHash(&hasher, key);
-                return @truncate(u32, hasher.final());
+                return @as(u32, @truncate(hasher.final()));
             }
         }
     }.hash;
@@ -2360,7 +2382,7 @@ pub fn getAutoHashStratFn(comptime K: type, comptime Context: type, comptime str
             _ = ctx;
             var hasher = Wyhash.init(0);
             std.hash.autoHashStrat(&hasher, key, strategy);
-            return @truncate(u32, hasher.final());
+            return @as(u32, @truncate(hasher.final()));
         }
     }.hash;
 }

@@ -70,16 +70,16 @@ pub fn matchToken(xlength: u32, xoffset: u32) Token {
 
 // Returns the literal of a literal token
 pub fn literal(t: Token) u32 {
-    return @intCast(u32, t - literal_type);
+    return @as(u32, @intCast(t - literal_type));
 }
 
 // Returns the extra offset of a match token
 pub fn offset(t: Token) u32 {
-    return @intCast(u32, t) & offset_mask;
+    return @as(u32, @intCast(t)) & offset_mask;
 }
 
 pub fn length(t: Token) u32 {
-    return @intCast(u32, (t - match_type) >> length_shift);
+    return @as(u32, @intCast((t - match_type) >> length_shift));
 }
 
 pub fn lengthCode(len: u32) u32 {
@@ -88,10 +88,10 @@ pub fn lengthCode(len: u32) u32 {
 
 // Returns the offset code corresponding to a specific offset
 pub fn offsetCode(off: u32) u32 {
-    if (off < @intCast(u32, offset_codes.len)) {
+    if (off < @as(u32, @intCast(offset_codes.len))) {
         return offset_codes[off];
     }
-    if (off >> 7 < @intCast(u32, offset_codes.len)) {
+    if (off >> 7 < @as(u32, @intCast(offset_codes.len))) {
         return offset_codes[off >> 7] + 14;
     }
     return offset_codes[off >> 14] + 28;
@@ -99,6 +99,5 @@ pub fn offsetCode(off: u32) u32 {
 
 test {
     const std = @import("std");
-    const expect = std.testing.expect;
-    try expect(matchToken(555, 555) == 3_401_581_099);
+    try std.testing.expectEqual(@as(Token, 3_401_581_099), matchToken(555, 555));
 }

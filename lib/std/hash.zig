@@ -32,7 +32,25 @@ pub const CityHash64 = cityhash.CityHash64;
 const wyhash = @import("hash/wyhash.zig");
 pub const Wyhash = wyhash.Wyhash;
 
-test "hash" {
+const xxhash = @import("hash/xxhash.zig");
+pub const XxHash64 = xxhash.XxHash64;
+pub const XxHash32 = xxhash.XxHash32;
+
+/// This is handy if you have a u32 and want a u32 and don't want to take a
+/// detour through many layers of abstraction elsewhere in the std.hash
+/// namespace.
+/// Copied from https://nullprogram.com/blog/2018/07/31/
+pub fn uint32(input: u32) u32 {
+    var x: u32 = input;
+    x ^= x >> 16;
+    x *%= 0x7feb352d;
+    x ^= x >> 15;
+    x *%= 0x846ca68b;
+    x ^= x >> 16;
+    return x;
+}
+
+test {
     _ = adler;
     _ = auto_hash;
     _ = crc;
@@ -40,4 +58,5 @@ test "hash" {
     _ = murmur;
     _ = cityhash;
     _ = wyhash;
+    _ = xxhash;
 }

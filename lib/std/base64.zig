@@ -9,7 +9,7 @@ pub const Error = error{
     NoSpaceLeft,
 };
 
-const decoderWithIgnoreProto = std.meta.FnPtr(fn (ignore: []const u8) Base64DecoderWithIgnore);
+const decoderWithIgnoreProto = *const fn (ignore: []const u8) Base64DecoderWithIgnore;
 
 /// Base64 codecs
 pub const Codecs = struct {
@@ -108,16 +108,16 @@ pub const Base64Encoder = struct {
             acc_len += 8;
             while (acc_len >= 6) {
                 acc_len -= 6;
-                dest[out_idx] = encoder.alphabet_chars[@truncate(u6, (acc >> acc_len))];
+                dest[out_idx] = encoder.alphabet_chars[@as(u6, @truncate((acc >> acc_len)))];
                 out_idx += 1;
             }
         }
         if (acc_len > 0) {
-            dest[out_idx] = encoder.alphabet_chars[@truncate(u6, (acc << 6 - acc_len))];
+            dest[out_idx] = encoder.alphabet_chars[@as(u6, @truncate((acc << 6 - acc_len)))];
             out_idx += 1;
         }
         if (encoder.pad_char) |pad_char| {
-            for (dest[out_idx..]) |*pad| {
+            for (dest[out_idx..out_len]) |*pad| {
                 pad.* = pad_char;
             }
         }
@@ -140,11 +140,11 @@ pub const Base64Decoder = struct {
         };
 
         var char_in_alphabet = [_]bool{false} ** 256;
-        for (alphabet_chars) |c, i| {
+        for (alphabet_chars, 0..) |c, i| {
             assert(!char_in_alphabet[c]);
             assert(pad_char == null or c != pad_char.?);
 
-            result.char_to_index[c] = @intCast(u8, i);
+            result.char_to_index[c] = @as(u8, @intCast(i));
             char_in_alphabet[c] = true;
         }
         return result;
@@ -185,7 +185,7 @@ pub const Base64Decoder = struct {
         var acc_len: u4 = 0;
         var dest_idx: usize = 0;
         var leftover_idx: ?usize = null;
-        for (source) |c, src_idx| {
+        for (source, 0..) |c, src_idx| {
             const d = decoder.char_to_index[c];
             if (d == invalid_char) {
                 if (decoder.pad_char == null or c != decoder.pad_char.?) return error.InvalidCharacter;
@@ -196,7 +196,7 @@ pub const Base64Decoder = struct {
             acc_len += 6;
             if (acc_len >= 8) {
                 acc_len -= 8;
-                dest[dest_idx] = @truncate(u8, acc >> acc_len);
+                dest[dest_idx] = @as(u8, @truncate(acc >> acc_len));
                 dest_idx += 1;
             }
         }
@@ -258,7 +258,7 @@ pub const Base64DecoderWithIgnore = struct {
         var acc_len: u4 = 0;
         var dest_idx: usize = 0;
         var leftover_idx: ?usize = null;
-        for (source) |c, src_idx| {
+        for (source, 0..) |c, src_idx| {
             if (decoder_with_ignore.char_is_ignored[c]) continue;
             const d = decoder.char_to_index[c];
             if (d == Base64Decoder.invalid_char) {
@@ -271,7 +271,7 @@ pub const Base64DecoderWithIgnore = struct {
             if (acc_len >= 8) {
                 if (dest_idx == dest.len) return error.NoSpaceLeft;
                 acc_len -= 8;
-                dest[dest_idx] = @truncate(u8, acc >> acc_len);
+                dest[dest_idx] = @as(u8, @truncate(acc >> acc_len));
                 dest_idx += 1;
             }
         }
@@ -302,13 +302,27 @@ pub const Base64DecoderWithIgnore = struct {
 test "base64" {
     @setEvalBranchQuota(8000);
     try testBase64();
-    comptime try testAllApis(standard, "comptime", "Y29tcHRpbWU=");
+    try comptime testAllApis(standard, "comptime", "Y29tcHRpbWU=");
+}
+
+test "base64 padding dest overflow" {
+    const input = "foo";
+
+    var expect: [128]u8 = undefined;
+    @memset(&expect, 0);
+    _ = url_safe.Encoder.encode(expect[0..url_safe.Encoder.calcSize(input.len)], input);
+
+    var got: [128]u8 = undefined;
+    @memset(&got, 0);
+    _ = url_safe.Encoder.encode(&got, input);
+
+    try std.testing.expectEqualSlices(u8, &expect, &got);
 }
 
 test "base64 url_safe_no_pad" {
     @setEvalBranchQuota(8000);
     try testBase64UrlSafeNoPad();
-    comptime try testAllApis(url_safe_no_pad, "comptime", "Y29tcHRpbWU");
+    try comptime testAllApis(url_safe_no_pad, "comptime", "Y29tcHRpbWU");
 }
 
 fn testBase64() !void {

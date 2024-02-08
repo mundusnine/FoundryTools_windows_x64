@@ -20,7 +20,7 @@ pub fn random(self: *Xoroshiro128) Random {
     return Random.init(self, fill);
 }
 
-fn next(self: *Xoroshiro128) u64 {
+pub fn next(self: *Xoroshiro128) u64 {
     const s0 = self.s[0];
     var s1 = self.s[1];
     const r = s0 +% s1;
@@ -33,7 +33,7 @@ fn next(self: *Xoroshiro128) u64 {
 }
 
 // Skip 2^64 places ahead in the sequence
-fn jump(self: *Xoroshiro128) void {
+pub fn jump(self: *Xoroshiro128) void {
     var s0: u64 = 0;
     var s1: u64 = 0;
 
@@ -45,7 +45,7 @@ fn jump(self: *Xoroshiro128) void {
     inline for (table) |entry| {
         var b: usize = 0;
         while (b < 64) : (b += 1) {
-            if ((entry & (@as(u64, 1) << @intCast(u6, b))) != 0) {
+            if ((entry & (@as(u64, 1) << @as(u6, @intCast(b)))) != 0) {
                 s0 ^= self.s[0];
                 s1 ^= self.s[1];
             }
@@ -74,7 +74,7 @@ pub fn fill(self: *Xoroshiro128, buf: []u8) void {
         var n = self.next();
         comptime var j: usize = 0;
         inline while (j < 8) : (j += 1) {
-            buf[i + j] = @truncate(u8, n);
+            buf[i + j] = @as(u8, @truncate(n));
             n >>= 8;
         }
     }
@@ -83,7 +83,7 @@ pub fn fill(self: *Xoroshiro128, buf: []u8) void {
     if (i != buf.len) {
         var n = self.next();
         while (i < buf.len) : (i += 1) {
-            buf[i] = @truncate(u8, n);
+            buf[i] = @as(u8, @truncate(n));
             n >>= 8;
         }
     }

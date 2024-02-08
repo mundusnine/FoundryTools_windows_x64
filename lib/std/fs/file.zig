@@ -21,7 +21,7 @@ pub const File = struct {
     /// blocking.
     capable_io_mode: io.ModeOverride = io.default_mode,
 
-    /// Furthermore, even when `std.io.mode` is async, it is still sometimes desirable
+    /// Furthermore, even when `std.options.io_mode` is async, it is still sometimes desirable
     /// to perform blocking I/O, although not by default. For example, when printing a
     /// stack trace to stderr. This field tracks both by acting as an overriding I/O mode.
     /// When not building in async I/O mode, the type only has the `.blocking` tag, making
@@ -35,19 +35,25 @@ pub const File = struct {
     pub const Gid = os.gid_t;
 
     pub const Kind = enum {
-        BlockDevice,
-        CharacterDevice,
-        Directory,
-        NamedPipe,
-        SymLink,
-        File,
-        UnixDomainSocket,
-        Whiteout,
-        Door,
-        EventPort,
-        Unknown,
+        block_device,
+        character_device,
+        directory,
+        named_pipe,
+        sym_link,
+        file,
+        unix_domain_socket,
+        whiteout,
+        door,
+        event_port,
+        unknown,
     };
 
+    /// This is the default mode given to POSIX operating systems for creating
+    /// files. `0o666` is "-rw-rw-rw-" which is counter-intuitive at first,
+    /// since most people would expect "-rw-r--r--", for example, when using
+    /// the `touch` command, which would correspond to `0o644`. However, POSIX
+    /// libc implementations use `0o666` inside `fopen` and then rely on the
+    /// process-scoped "umask" setting to adjust this number for file creation.
     pub const default_mode = switch (builtin.os.tag) {
         .windows => 0,
         .wasi => 0,
@@ -67,6 +73,8 @@ pub const File = struct {
         /// '/', '*', '?', '"', '<', '>', '|'
         BadPathName,
         Unexpected,
+        /// On Windows, `\\server` or `\\server\share` was not found.
+        NetworkNotFound,
     } || os.OpenError || os.FlockError;
 
     pub const OpenMode = enum {
@@ -75,7 +83,11 @@ pub const File = struct {
         read_write,
     };
 
-    pub const Lock = enum { None, Shared, Exclusive };
+    pub const Lock = enum {
+        none,
+        shared,
+        exclusive,
+    };
 
     pub const OpenFlags = struct {
         mode: OpenMode = .read_only,
@@ -86,7 +98,7 @@ pub const File = struct {
         /// processes from acquiring a exclusive lock, but does not prevent
         /// other process from getting their own shared locks.
         ///
-        /// The lock is advisory, except on Linux in very specific cirsumstances[1].
+        /// The lock is advisory, except on Linux in very specific circumstances[1].
         /// This means that a process that does not respect the locking API can still get access
         /// to the file, despite the lock.
         ///
@@ -104,7 +116,7 @@ pub const File = struct {
         /// * Windows
         ///
         /// [1]: https://www.kernel.org/doc/Documentation/filesystems/mandatory-locking.txt
-        lock: Lock = .None,
+        lock: Lock = .none,
 
         /// Sets whether or not to wait until the file is locked to return. If set to true,
         /// `error.WouldBlock` will be returned. Otherwise, the file will wait until the file
@@ -150,7 +162,7 @@ pub const File = struct {
         /// processes from acquiring a exclusive lock, but does not prevent
         /// other process from getting their own shared locks.
         ///
-        /// The lock is advisory, except on Linux in very specific cirsumstances[1].
+        /// The lock is advisory, except on Linux in very specific circumstances[1].
         /// This means that a process that does not respect the locking API can still get access
         /// to the file, despite the lock.
         ///
@@ -168,7 +180,7 @@ pub const File = struct {
         /// * Windows
         ///
         /// [1]: https://www.kernel.org/doc/Documentation/filesystems/mandatory-locking.txt
-        lock: Lock = .None,
+        lock: Lock = .none,
 
         /// Sets whether or not to wait until the file is locked to return. If set to true,
         /// `error.WouldBlock` will be returned. Otherwise, the file will wait until the file
@@ -179,7 +191,7 @@ pub const File = struct {
         lock_nonblocking: bool = false,
 
         /// For POSIX systems this is the file system mode the file will
-        /// be created with.
+        /// be created with. On other systems this is always 0.
         mode: Mode = default_mode,
 
         /// Setting this to `.blocking` prevents `O.NONBLOCK` from being passed even
@@ -220,6 +232,11 @@ pub const File = struct {
     /// Test whether ANSI escape codes will be treated as such.
     pub fn supportsAnsiEscapeCodes(self: File) bool {
         if (builtin.os.tag == .windows) {
+            var console_mode: os.windows.DWORD = 0;
+            if (os.windows.kernel32.GetConsoleMode(self.handle, &console_mode) != 0) {
+                if (console_mode & os.windows.ENABLE_VIRTUAL_TERMINAL_PROCESSING != 0) return true;
+            }
+
             return os.isCygwinPty(self.handle);
         }
         if (builtin.os.tag == .wasi) {
@@ -294,16 +311,20 @@ pub const File = struct {
     }
 
     pub const Stat = struct {
-        /// A number that the system uses to point to the file metadata. This number is not guaranteed to be
-        /// unique across time, as some file systems may reuse an inode after its file has been deleted.
-        /// Some systems may change the inode of a file over time.
+        /// A number that the system uses to point to the file metadata. This
+        /// number is not guaranteed to be unique across time, as some file
+        /// systems may reuse an inode after its file has been deleted. Some
+        /// systems may change the inode of a file over time.
         ///
-        /// On Linux, the inode is a structure that stores the metadata, and the inode _number_ is what
-        /// you see here: the index number of the inode.
+        /// On Linux, the inode is a structure that stores the metadata, and
+        /// the inode _number_ is what you see here: the index number of the
+        /// inode.
         ///
-        /// The FileIndex on Windows is similar. It is a number for a file that is unique to each filesystem.
+        /// The FileIndex on Windows is similar. It is a number for a file that
+        /// is unique to each filesystem.
         inode: INode,
         size: u64,
+        /// This is available on POSIX systems and is always 0 otherwise.
         mode: Mode,
         kind: Kind,
 
@@ -313,6 +334,50 @@ pub const File = struct {
         mtime: i128,
         /// Creation time in nanoseconds, relative to UTC 1970-01-01.
         ctime: i128,
+
+        pub fn fromSystem(st: os.system.Stat) Stat {
+            const atime = st.atime();
+            const mtime = st.mtime();
+            const ctime = st.ctime();
+            const kind: Kind = if (builtin.os.tag == .wasi and !builtin.link_libc) switch (st.filetype) {
+                .BLOCK_DEVICE => .block_device,
+                .CHARACTER_DEVICE => .character_device,
+                .DIRECTORY => .directory,
+                .SYMBOLIC_LINK => .sym_link,
+                .REGULAR_FILE => .file,
+                .SOCKET_STREAM, .SOCKET_DGRAM => .unix_domain_socket,
+                else => .unknown,
+            } else blk: {
+                const m = st.mode & os.S.IFMT;
+                switch (m) {
+                    os.S.IFBLK => break :blk .block_device,
+                    os.S.IFCHR => break :blk .character_device,
+                    os.S.IFDIR => break :blk .directory,
+                    os.S.IFIFO => break :blk .named_pipe,
+                    os.S.IFLNK => break :blk .sym_link,
+                    os.S.IFREG => break :blk .file,
+                    os.S.IFSOCK => break :blk .unix_domain_socket,
+                    else => {},
+                }
+                if (builtin.os.tag == .solaris) switch (m) {
+                    os.S.IFDOOR => break :blk .door,
+                    os.S.IFPORT => break :blk .event_port,
+                    else => {},
+                };
+
+                break :blk .unknown;
+            };
+
+            return Stat{
+                .inode = st.ino,
+                .size = @as(u64, @bitCast(st.size)),
+                .mode = st.mode,
+                .kind = kind,
+                .atime = @as(i128, atime.tv_sec) * std.time.ns_per_s + atime.tv_nsec,
+                .mtime = @as(i128, mtime.tv_sec) * std.time.ns_per_s + mtime.tv_nsec,
+                .ctime = @as(i128, ctime.tv_sec) * std.time.ns_per_s + ctime.tv_nsec,
+            };
+        }
     };
 
     pub const StatError = os.FStatError;
@@ -325,6 +390,9 @@ pub const File = struct {
             const rc = windows.ntdll.NtQueryInformationFile(self.handle, &io_status_block, &info, @sizeOf(windows.FILE_ALL_INFORMATION), .FileAllInformation);
             switch (rc) {
                 .SUCCESS => {},
+                // Buffer overflow here indicates that there is more information available than was able to be stored in the buffer
+                // size provided. This is treated as success because the type of variable-length information that this would be relevant for
+                // (name, volume name, etc) we don't care about.
                 .BUFFER_OVERFLOW => {},
                 .INVALID_PARAMETER => unreachable,
                 .ACCESS_DENIED => return error.AccessDenied,
@@ -332,9 +400,9 @@ pub const File = struct {
             }
             return Stat{
                 .inode = info.InternalInformation.IndexNumber,
-                .size = @bitCast(u64, info.StandardInformation.EndOfFile),
+                .size = @as(u64, @bitCast(info.StandardInformation.EndOfFile)),
                 .mode = 0,
-                .kind = if (info.StandardInformation.Directory == 0) .File else .Directory,
+                .kind = if (info.StandardInformation.Directory == 0) .file else .directory,
                 .atime = windows.fromSysTime(info.BasicInformation.LastAccessTime),
                 .mtime = windows.fromSysTime(info.BasicInformation.LastWriteTime),
                 .ctime = windows.fromSysTime(info.BasicInformation.CreationTime),
@@ -342,47 +410,7 @@ pub const File = struct {
         }
 
         const st = try os.fstat(self.handle);
-        const atime = st.atime();
-        const mtime = st.mtime();
-        const ctime = st.ctime();
-        const kind: Kind = if (builtin.os.tag == .wasi and !builtin.link_libc) switch (st.filetype) {
-            .BLOCK_DEVICE => Kind.BlockDevice,
-            .CHARACTER_DEVICE => Kind.CharacterDevice,
-            .DIRECTORY => Kind.Directory,
-            .SYMBOLIC_LINK => Kind.SymLink,
-            .REGULAR_FILE => Kind.File,
-            .SOCKET_STREAM, .SOCKET_DGRAM => Kind.UnixDomainSocket,
-            else => Kind.Unknown,
-        } else blk: {
-            const m = st.mode & os.S.IFMT;
-            switch (m) {
-                os.S.IFBLK => break :blk Kind.BlockDevice,
-                os.S.IFCHR => break :blk Kind.CharacterDevice,
-                os.S.IFDIR => break :blk Kind.Directory,
-                os.S.IFIFO => break :blk Kind.NamedPipe,
-                os.S.IFLNK => break :blk Kind.SymLink,
-                os.S.IFREG => break :blk Kind.File,
-                os.S.IFSOCK => break :blk Kind.UnixDomainSocket,
-                else => {},
-            }
-            if (builtin.os.tag == .solaris) switch (m) {
-                os.S.IFDOOR => break :blk Kind.Door,
-                os.S.IFPORT => break :blk Kind.EventPort,
-                else => {},
-            };
-
-            break :blk .Unknown;
-        };
-
-        return Stat{
-            .inode = st.ino,
-            .size = @bitCast(u64, st.size),
-            .mode = st.mode,
-            .kind = kind,
-            .atime = @as(i128, atime.tv_sec) * std.time.ns_per_s + atime.tv_nsec,
-            .mtime = @as(i128, mtime.tv_sec) * std.time.ns_per_s + mtime.tv_nsec,
-            .ctime = @as(i128, ctime.tv_sec) * std.time.ns_per_s + ctime.tv_nsec,
-        };
+        return Stat.fromSystem(st);
     }
 
     pub const ChmodError = std.os.FChmodError;
@@ -490,7 +518,7 @@ pub const File = struct {
         /// Returns `true` if the chosen class has the selected permission.
         /// This method is only available on Unix platforms.
         pub fn unixHas(self: Self, class: Class, permission: Permission) bool {
-            const mask = @as(Mode, @enumToInt(permission)) << @as(u3, @enumToInt(class)) * 3;
+            const mask = @as(Mode, @intFromEnum(permission)) << @as(u3, @intFromEnum(class)) * 3;
             return self.mode & mask != 0;
         }
 
@@ -501,7 +529,7 @@ pub const File = struct {
             write: ?bool = null,
             execute: ?bool = null,
         }) void {
-            const shift = @as(u3, @enumToInt(class)) * 3;
+            const shift = @as(u3, @intFromEnum(class)) * 3;
             if (permissions.read) |r| {
                 if (r) {
                     self.mode |= @as(Mode, 0o4) << shift;
@@ -592,7 +620,7 @@ pub const File = struct {
         }
 
         /// Returns the `Kind` of file.
-        /// On Windows, can only return: `.File`, `.Directory`, `.SymLink` or `.Unknown`
+        /// On Windows, can only return: `.file`, `.directory`, `.sym_link` or `.unknown`
         pub fn kind(self: Self) Kind {
             return self.inner.kind();
         }
@@ -624,7 +652,7 @@ pub const File = struct {
 
         /// Returns the size of the file
         pub fn size(self: Self) u64 {
-            return @intCast(u64, self.stat.size);
+            return @as(u64, @intCast(self.stat.size));
         }
 
         /// Returns a `Permissions` struct, representing the permissions on the file
@@ -635,35 +663,35 @@ pub const File = struct {
         /// Returns the `Kind` of the file
         pub fn kind(self: Self) Kind {
             if (builtin.os.tag == .wasi and !builtin.link_libc) return switch (self.stat.filetype) {
-                .BLOCK_DEVICE => Kind.BlockDevice,
-                .CHARACTER_DEVICE => Kind.CharacterDevice,
-                .DIRECTORY => Kind.Directory,
-                .SYMBOLIC_LINK => Kind.SymLink,
-                .REGULAR_FILE => Kind.File,
-                .SOCKET_STREAM, .SOCKET_DGRAM => Kind.UnixDomainSocket,
-                else => Kind.Unknown,
+                .BLOCK_DEVICE => .block_device,
+                .CHARACTER_DEVICE => .character_device,
+                .DIRECTORY => .directory,
+                .SYMBOLIC_LINK => .sym_link,
+                .REGULAR_FILE => .file,
+                .SOCKET_STREAM, .SOCKET_DGRAM => .unix_domain_socket,
+                else => .unknown,
             };
 
             const m = self.stat.mode & os.S.IFMT;
 
             switch (m) {
-                os.S.IFBLK => return Kind.BlockDevice,
-                os.S.IFCHR => return Kind.CharacterDevice,
-                os.S.IFDIR => return Kind.Directory,
-                os.S.IFIFO => return Kind.NamedPipe,
-                os.S.IFLNK => return Kind.SymLink,
-                os.S.IFREG => return Kind.File,
-                os.S.IFSOCK => return Kind.UnixDomainSocket,
+                os.S.IFBLK => return .block_device,
+                os.S.IFCHR => return .character_device,
+                os.S.IFDIR => return .directory,
+                os.S.IFIFO => return .named_pipe,
+                os.S.IFLNK => return .sym_link,
+                os.S.IFREG => return .file,
+                os.S.IFSOCK => return .unix_domain_socket,
                 else => {},
             }
 
             if (builtin.os.tag == .solaris) switch (m) {
-                os.S.IFDOOR => return Kind.Door,
-                os.S.IFPORT => return Kind.EventPort,
+                os.S.IFDOOR => return .door,
+                os.S.IFPORT => return .event_port,
                 else => {},
             };
 
-            return .Unknown;
+            return .unknown;
         }
 
         /// Returns the last time the file was accessed in nanoseconds since UTC 1970-01-01
@@ -721,17 +749,17 @@ pub const File = struct {
             const m = self.statx.mode & os.S.IFMT;
 
             switch (m) {
-                os.S.IFBLK => return Kind.BlockDevice,
-                os.S.IFCHR => return Kind.CharacterDevice,
-                os.S.IFDIR => return Kind.Directory,
-                os.S.IFIFO => return Kind.NamedPipe,
-                os.S.IFLNK => return Kind.SymLink,
-                os.S.IFREG => return Kind.File,
-                os.S.IFSOCK => return Kind.UnixDomainSocket,
+                os.S.IFBLK => return .block_device,
+                os.S.IFCHR => return .character_device,
+                os.S.IFDIR => return .directory,
+                os.S.IFIFO => return .named_pipe,
+                os.S.IFLNK => return .sym_link,
+                os.S.IFREG => return .file,
+                os.S.IFSOCK => return .unix_domain_socket,
                 else => {},
             }
 
-            return .Unknown;
+            return .unknown;
         }
 
         /// Returns the last time the file was accessed in nanoseconds since UTC 1970-01-01
@@ -773,18 +801,18 @@ pub const File = struct {
         }
 
         /// Returns the `Kind` of the file.
-        /// Can only return: `.File`, `.Directory`, `.SymLink` or `.Unknown`
+        /// Can only return: `.file`, `.directory`, `.sym_link` or `.unknown`
         pub fn kind(self: Self) Kind {
             if (self.attributes & windows.FILE_ATTRIBUTE_REPARSE_POINT != 0) {
                 if (self.reparse_tag & 0x20000000 != 0) {
-                    return .SymLink;
+                    return .sym_link;
                 }
             } else if (self.attributes & windows.FILE_ATTRIBUTE_DIRECTORY != 0) {
-                return .Directory;
+                return .directory;
             } else {
-                return .File;
+                return .file;
             }
-            return .Unknown;
+            return .unknown;
         }
 
         /// Returns the last time the file was accessed in nanoseconds since UTC 1970-01-01
@@ -816,6 +844,9 @@ pub const File = struct {
                     const rc = windows.ntdll.NtQueryInformationFile(self.handle, &io_status_block, &info, @sizeOf(windows.FILE_ALL_INFORMATION), .FileAllInformation);
                     switch (rc) {
                         .SUCCESS => {},
+                        // Buffer overflow here indicates that there is more information available than was able to be stored in the buffer
+                        // size provided. This is treated as success because the type of variable-length information that this would be relevant for
+                        // (name, volume name, etc) we don't care about.
                         .BUFFER_OVERFLOW => {},
                         .INVALID_PARAMETER => unreachable,
                         .ACCESS_DENIED => return error.AccessDenied,
@@ -826,7 +857,7 @@ pub const File = struct {
                         if (info.BasicInformation.FileAttributes & windows.FILE_ATTRIBUTE_REPARSE_POINT != 0) {
                             var reparse_buf: [windows.MAXIMUM_REPARSE_DATA_BUFFER_SIZE]u8 = undefined;
                             try windows.DeviceIoControl(self.handle, windows.FSCTL_GET_REPARSE_POINT, null, reparse_buf[0..]);
-                            const reparse_struct = @ptrCast(*const windows.REPARSE_DATA_BUFFER, @alignCast(@alignOf(windows.REPARSE_DATA_BUFFER), &reparse_buf[0]));
+                            const reparse_struct: *const windows.REPARSE_DATA_BUFFER = @ptrCast(@alignCast(&reparse_buf[0]));
                             break :reparse_blk reparse_struct.ReparseTag;
                         }
                         break :reparse_blk 0;
@@ -835,7 +866,7 @@ pub const File = struct {
                     break :blk MetadataWindows{
                         .attributes = info.BasicInformation.FileAttributes,
                         .reparse_tag = reparse_tag,
-                        ._size = @bitCast(u64, info.StandardInformation.EndOfFile),
+                        ._size = @as(u64, @bitCast(info.StandardInformation.EndOfFile)),
                         .access_time = windows.fromSysTime(info.BasicInformation.LastAccessTime),
                         .modified_time = windows.fromSysTime(info.BasicInformation.LastWriteTime),
                         .creation_time = windows.fromSysTime(info.BasicInformation.CreationTime),
@@ -852,16 +883,16 @@ pub const File = struct {
                         .NOSYS => {
                             const st = try os.fstat(self.handle);
 
-                            stx.mode = @intCast(u16, st.mode);
+                            stx.mode = @as(u16, @intCast(st.mode));
 
                             // Hacky conversion from timespec to statx_timestamp
                             stx.atime = std.mem.zeroes(os.linux.statx_timestamp);
                             stx.atime.tv_sec = st.atim.tv_sec;
-                            stx.atime.tv_nsec = @intCast(u32, st.atim.tv_nsec); // Guaranteed to succeed (tv_nsec is always below 10^9)
+                            stx.atime.tv_nsec = @as(u32, @intCast(st.atim.tv_nsec)); // Guaranteed to succeed (tv_nsec is always below 10^9)
 
                             stx.mtime = std.mem.zeroes(os.linux.statx_timestamp);
                             stx.mtime.tv_sec = st.mtim.tv_sec;
-                            stx.mtime.tv_nsec = @intCast(u32, st.mtim.tv_nsec);
+                            stx.mtime.tv_nsec = @as(u32, @intCast(st.mtim.tv_nsec));
 
                             stx.mask = os.linux.STATX_BASIC_STATS | os.linux.STATX_MTIME;
                         },
@@ -944,7 +975,7 @@ pub const File = struct {
         // The file size returned by stat is used as hint to set the buffer
         // size. If the reported size is zero, as it happens on Linux for files
         // in /proc, a small buffer is allocated instead.
-        const initial_cap = (if (size > 0) size else 1024) + @boolToInt(optional_sentinel != null);
+        const initial_cap = (if (size > 0) size else 1024) + @intFromBool(optional_sentinel != null);
         var array_list = try std.ArrayListAligned(u8, alignment).initCapacity(allocator, initial_cap);
         defer array_list.deinit();
 
@@ -954,11 +985,9 @@ pub const File = struct {
         };
 
         if (optional_sentinel) |sentinel| {
-            try array_list.append(sentinel);
-            const buf = array_list.toOwnedSlice();
-            return buf[0 .. buf.len - 1 :sentinel];
+            return try array_list.toOwnedSliceSentinel(sentinel);
         } else {
-            return array_list.toOwnedSlice();
+            return try array_list.toOwnedSlice();
         }
     }
 
@@ -1036,11 +1065,26 @@ pub const File = struct {
     /// Returns the number of bytes read. If the number read is smaller than the total bytes
     /// from all the buffers, it means the file reached the end. Reaching the end of a file
     /// is not an error condition.
-    /// The `iovecs` parameter is mutable because this function needs to mutate the fields in
-    /// order to handle partial reads from the underlying OS layer.
-    /// See https://github.com/ziglang/zig/issues/7699
+    ///
+    /// The `iovecs` parameter is mutable because:
+    /// * This function needs to mutate the fields in order to handle partial
+    ///   reads from the underlying OS layer.
+    /// * The OS layer expects pointer addresses to be inside the application's address space
+    ///   even if the length is zero. Meanwhile, in Zig, slices may have undefined pointer
+    ///   addresses when the length is zero. So this function modifies the iov_base fields
+    ///   when the length is zero.
+    ///
+    /// Related open issue: https://github.com/ziglang/zig/issues/7699
     pub fn readvAll(self: File, iovecs: []os.iovec) ReadError!usize {
         if (iovecs.len == 0) return 0;
+
+        // We use the address of this local variable for all zero-length
+        // vectors so that the OS does not complain that we are giving it
+        // addresses outside the application's address space.
+        var garbage: [1]u8 = undefined;
+        for (iovecs) |*v| {
+            if (v.iov_len == 0) v.iov_base = &garbage;
+        }
 
         var i: usize = 0;
         var off: usize = 0;
@@ -1169,12 +1213,25 @@ pub const File = struct {
         }
     }
 
-    /// The `iovecs` parameter is mutable because this function needs to mutate the fields in
-    /// order to handle partial writes from the underlying OS layer.
+    /// The `iovecs` parameter is mutable because:
+    /// * This function needs to mutate the fields in order to handle partial
+    ///   writes from the underlying OS layer.
+    /// * The OS layer expects pointer addresses to be inside the application's address space
+    ///   even if the length is zero. Meanwhile, in Zig, slices may have undefined pointer
+    ///   addresses when the length is zero. So this function modifies the iov_base fields
+    ///   when the length is zero.
     /// See https://github.com/ziglang/zig/issues/7699
     /// See equivalent function: `std.net.Stream.writevAll`.
     pub fn writevAll(self: File, iovecs: []os.iovec_const) WriteError!void {
         if (iovecs.len == 0) return;
+
+        // We use the address of this local variable for all zero-length
+        // vectors so that the OS does not complain that we are giving it
+        // addresses outside the application's address space.
+        var garbage: [1]u8 = undefined;
+        for (iovecs) |*v| {
+            if (v.iov_len == 0) v.iov_base = &garbage;
+        }
 
         var i: usize = 0;
         while (true) {
@@ -1359,7 +1416,7 @@ pub const File = struct {
                 amt = try os.sendfile(out_fd, in_fd, offset + off, count - off, zero_iovec, trailers, flags);
                 off += amt;
             }
-            amt = @intCast(usize, off - count);
+            amt = @as(usize, @intCast(off - count));
         }
         var i: usize = 0;
         while (i < trailers.len) {
@@ -1419,9 +1476,9 @@ pub const File = struct {
         if (is_windows) {
             var io_status_block: windows.IO_STATUS_BLOCK = undefined;
             const exclusive = switch (l) {
-                .None => return,
-                .Shared => false,
-                .Exclusive => true,
+                .none => return,
+                .shared => false,
+                .exclusive => true,
             };
             return windows.LockFile(
                 file.handle,
@@ -1433,16 +1490,16 @@ pub const File = struct {
                 &range_len,
                 null,
                 windows.FALSE, // non-blocking=false
-                @boolToInt(exclusive),
+                @intFromBool(exclusive),
             ) catch |err| switch (err) {
                 error.WouldBlock => unreachable, // non-blocking=false
                 else => |e| return e,
             };
         } else {
             return os.flock(file.handle, switch (l) {
-                .None => os.LOCK.UN,
-                .Shared => os.LOCK.SH,
-                .Exclusive => os.LOCK.EX,
+                .none => os.LOCK.UN,
+                .shared => os.LOCK.SH,
+                .exclusive => os.LOCK.EX,
             }) catch |err| switch (err) {
                 error.WouldBlock => unreachable, // non-blocking=false
                 else => |e| return e,
@@ -1486,9 +1543,9 @@ pub const File = struct {
         if (is_windows) {
             var io_status_block: windows.IO_STATUS_BLOCK = undefined;
             const exclusive = switch (l) {
-                .None => return,
-                .Shared => false,
-                .Exclusive => true,
+                .none => return,
+                .shared => false,
+                .exclusive => true,
             };
             windows.LockFile(
                 file.handle,
@@ -1500,16 +1557,16 @@ pub const File = struct {
                 &range_len,
                 null,
                 windows.TRUE, // non-blocking=true
-                @boolToInt(exclusive),
+                @intFromBool(exclusive),
             ) catch |err| switch (err) {
                 error.WouldBlock => return false,
                 else => |e| return e,
             };
         } else {
             os.flock(file.handle, switch (l) {
-                .None => os.LOCK.UN,
-                .Shared => os.LOCK.SH | os.LOCK.NB,
-                .Exclusive => os.LOCK.EX | os.LOCK.NB,
+                .none => os.LOCK.UN,
+                .shared => os.LOCK.SH | os.LOCK.NB,
+                .exclusive => os.LOCK.EX | os.LOCK.NB,
             }) catch |err| switch (err) {
                 error.WouldBlock => return false,
                 else => |e| return e,

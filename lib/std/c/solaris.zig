@@ -1,4 +1,5 @@
 const std = @import("../std.zig");
+const assert = std.debug.assert;
 const builtin = @import("builtin");
 const maxInt = std.math.maxInt;
 const iovec = std.os.iovec;
@@ -8,7 +9,7 @@ const timezone = std.c.timezone;
 extern "c" fn ___errno() *c_int;
 pub const _errno = ___errno;
 
-pub const dl_iterate_phdr_callback = std.meta.FnPtr(fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int);
+pub const dl_iterate_phdr_callback = *const fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int;
 pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*anyopaque) c_int;
 
 pub extern "c" fn getdents(fd: c_int, buf_ptr: [*]u8, nbytes: usize) usize;
@@ -24,20 +25,20 @@ pub const pthread_mutex_t = extern struct {
     flag1: u16 = 0,
     flag2: u8 = 0,
     ceiling: u8 = 0,
-    @"type": u16 = 0,
+    type: u16 = 0,
     magic: u16 = 0x4d58,
     lock: u64 = 0,
     data: u64 = 0,
 };
 pub const pthread_cond_t = extern struct {
     flag: [4]u8 = [_]u8{0} ** 4,
-    @"type": u16 = 0,
+    type: u16 = 0,
     magic: u16 = 0x4356,
     data: u64 = 0,
 };
 pub const pthread_rwlock_t = extern struct {
     readers: i32 = 0,
-    @"type": u16 = 0,
+    type: u16 = 0,
     magic: u16 = 0x5257,
     mutex: pthread_mutex_t = .{},
     readercv: pthread_cond_t = .{},
@@ -50,7 +51,7 @@ pub const pthread_key_t = c_int;
 
 pub const sem_t = extern struct {
     count: u32 = 0,
-    @"type": u16 = 0,
+    type: u16 = 0,
     magic: u16 = 0x534d,
     __pad1: [3]u64 = [_]u64{0} ** 3,
     __pad2: [2]u64 = [_]u64{0} ** 2,
@@ -109,10 +110,10 @@ pub const RTLD = struct {
     pub const FIRST = 0x02000;
     pub const CONFGEN = 0x10000;
 
-    pub const NEXT = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -1)));
-    pub const DEFAULT = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -2)));
-    pub const SELF = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -3)));
-    pub const PROBE = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -4)));
+    pub const NEXT = @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -1)))));
+    pub const DEFAULT = @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -2)))));
+    pub const SELF = @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -3)))));
+    pub const PROBE = @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -4)))));
 };
 
 pub const Flock = extern struct {
@@ -435,7 +436,15 @@ pub const sockaddr = extern struct {
     data: [14]u8,
 
     pub const SS_MAXSIZE = 256;
-    pub const storage = std.x.os.Socket.Address.Native.Storage;
+    pub const storage = extern struct {
+        family: sa_family_t align(8),
+        padding: [254]u8 = undefined,
+
+        comptime {
+            assert(@sizeOf(storage) == SS_MAXSIZE);
+            assert(@alignOf(storage) == 8);
+        }
+    };
 
     pub const in = extern struct {
         family: sa_family_t = AF.INET,
@@ -514,7 +523,7 @@ pub const CLOCK = struct {
 };
 
 pub const MAP = struct {
-    pub const FAILED = @intToPtr(*anyopaque, maxInt(usize));
+    pub const FAILED = @as(*anyopaque, @ptrFromInt(maxInt(usize)));
     pub const SHARED = 0x0001;
     pub const PRIVATE = 0x0002;
     pub const TYPE = 0x000f;
@@ -573,7 +582,7 @@ pub const W = struct {
     pub const NOWAIT = 0o200;
 
     pub fn EXITSTATUS(s: u32) u8 {
-        return @intCast(u8, (s >> 8) & 0xff);
+        return @as(u8, @intCast((s >> 8) & 0xff));
     }
     pub fn TERMSIG(s: u32) u32 {
         return s & 0x7f;
@@ -876,10 +885,10 @@ pub const winsize = extern struct {
 const NSIG = 75;
 
 pub const SIG = struct {
-    pub const DFL = @intToPtr(?Sigaction.handler_fn, 0);
-    pub const ERR = @intToPtr(?Sigaction.handler_fn, maxInt(usize));
-    pub const IGN = @intToPtr(?Sigaction.handler_fn, 1);
-    pub const HOLD = @intToPtr(?Sigaction.handler_fn, 2);
+    pub const DFL = @as(?Sigaction.handler_fn, @ptrFromInt(0));
+    pub const ERR = @as(?Sigaction.handler_fn, @ptrFromInt(maxInt(usize)));
+    pub const IGN = @as(?Sigaction.handler_fn, @ptrFromInt(1));
+    pub const HOLD = @as(?Sigaction.handler_fn, @ptrFromInt(2));
 
     pub const WORDS = 4;
     pub const MAXSIG = 75;
@@ -952,8 +961,8 @@ pub const SIG = struct {
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
-    pub const handler_fn = std.meta.FnPtr(fn (c_int) align(1) callconv(.C) void);
-    pub const sigaction_fn = std.meta.FnPtr(fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void);
+    pub const handler_fn = *const fn (c_int) align(1) callconv(.C) void;
+    pub const sigaction_fn = *const fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
 
     /// signal options
     flags: c_uint,
@@ -1431,7 +1440,7 @@ pub const AT = struct {
     /// Magic value that specify the use of the current working directory
     /// to determine the target of relative file paths in the openat() and
     /// similar syscalls.
-    pub const FDCWD = @bitCast(fd_t, @as(u32, 0xffd19553));
+    pub const FDCWD = @as(fd_t, @bitCast(@as(u32, 0xffd19553)));
 
     /// Do not follow symbolic links
     pub const SYMLINK_NOFOLLOW = 0x1000;
@@ -1683,7 +1692,7 @@ pub const _SC = struct {
 pub const procfs = struct {
     pub const misc_header = extern struct {
         size: u32,
-        @"type": enum(u32) {
+        type: enum(u32) {
             Pathname,
             Socketname,
             Peersockname,
@@ -1812,7 +1821,7 @@ pub const file_obj = extern struct {
     name: [*:0]u8,
 };
 
-// struct ifreq is marked obsolete, with struct lifreq prefered for interface requests.
+// struct ifreq is marked obsolete, with struct lifreq preferred for interface requests.
 // Here we alias lifreq to ifreq to avoid chainging existing code in os and x.os.IPv6.
 pub const SIOCGLIFINDEX = IOWR('i', 133, lifreq);
 pub const SIOCGIFINDEX = SIOCGLIFINDEX;
@@ -1851,7 +1860,7 @@ pub const lifreq = extern struct {
         ppa: u32,
     },
     /// One of the IFT types, e.g. IFT_ETHER.
-    @"type": u32,
+    type: u32,
     ifru: extern union {
         /// Address.
         addr: sockaddr.storage,
@@ -1897,9 +1906,9 @@ const IoCtlCommand = enum(u32) {
 };
 
 fn ioImpl(cmd: IoCtlCommand, io_type: u8, nr: u8, comptime IOT: type) i32 {
-    const size = @intCast(u32, @truncate(u8, @sizeOf(IOT))) << 16;
-    const t = @intCast(u32, io_type) << 8;
-    return @bitCast(i32, @enumToInt(cmd) | size | t | nr);
+    const size = @as(u32, @intCast(@as(u8, @truncate(@sizeOf(IOT))))) << 16;
+    const t = @as(u32, @intCast(io_type)) << 8;
+    return @as(i32, @bitCast(@intFromEnum(cmd) | size | t | nr));
 }
 
 pub fn IO(io_type: u8, nr: u8) i32 {

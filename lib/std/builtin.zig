@@ -38,24 +38,24 @@ pub const StackTrace = struct {
         options: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
+        if (fmt.len != 0) std.fmt.invalidFmtError(fmt, self);
+
         // TODO: re-evaluate whether to use format() methods at all.
         // Until then, avoid an error when using GeneralPurposeAllocator with WebAssembly
         // where it tries to call detectTTYConfig here.
         if (builtin.os.tag == .freestanding) return;
 
-        _ = fmt;
         _ = options;
         var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
         defer arena.deinit();
         const debug_info = std.debug.getSelfDebugInfo() catch |err| {
             return writer.print("\nUnable to print stack trace: Unable to open debug info: {s}\n", .{@errorName(err)});
         };
-        const tty_config = std.debug.detectTTYConfig();
+        const tty_config = std.io.tty.detectConfig(std.io.getStdErr());
         try writer.writeAll("\n");
         std.debug.writeStackTrace(self, writer, arena.allocator(), debug_info, tty_config) catch |err| {
             try writer.print("Unable to print stack trace: {s}\n", .{@errorName(err)});
         };
-        try writer.writeAll("\n");
     }
 };
 
@@ -130,49 +130,86 @@ pub const CodeModel = enum {
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-pub const Mode = enum {
+pub const OptimizeMode = enum {
     Debug,
     ReleaseSafe,
     ReleaseFast,
     ReleaseSmall,
 };
 
+/// Deprecated; use OptimizeMode.
+pub const Mode = OptimizeMode;
+
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-pub const CallingConvention = enum {
+pub const CallingConvention = enum(u8) {
+    /// This is the default Zig calling convention used when not using `export` on `fn`
+    /// and no other calling convention is specified.
     Unspecified,
+    /// Matches the C ABI for the target.
+    /// This is the default calling convention when using `export` on `fn`
+    /// and no other calling convention is specified.
     C,
+    /// This makes a function not have any function prologue or epilogue,
+    /// making the function itself uncallable in regular Zig code.
+    /// This can be useful when integrating with assembly.
     Naked,
+    /// Functions with this calling convention are called asynchronously,
+    /// as if called as `async function()`.
     Async,
+    /// Functions with this calling convention are inlined at all call sites.
     Inline,
+    /// x86-only.
     Interrupt,
     Signal,
+    /// x86-only.
     Stdcall,
+    /// x86-only.
     Fastcall,
+    /// x86-only.
     Vectorcall,
+    /// x86-only.
     Thiscall,
+    /// ARM Procedure Call Standard (obsolete)
+    /// ARM-only.
     APCS,
+    /// ARM Architecture Procedure Call Standard (current standard)
+    /// ARM-only.
     AAPCS,
+    /// ARM Architecture Procedure Call Standard Vector Floating-Point
+    /// ARM-only.
     AAPCSVFP,
+    /// x86-64-only.
     SysV,
+    /// x86-64-only.
     Win64,
-    PtxKernel,
-    AmdgpuKernel,
+    /// AMD GPU, NVPTX, or SPIR-V kernel
+    Kernel,
 };
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-pub const AddressSpace = enum {
+pub const AddressSpace = enum(u5) {
+    // CPU address spaces.
     generic,
     gs,
     fs,
     ss,
-    // GPU address spaces
+
+    // GPU address spaces.
     global,
     constant,
     param,
     shared,
     local,
+
+    // AVR address spaces.
+    flash,
+    flash1,
+    flash2,
+    flash3,
+    flash4,
+    flash5,
 };
 
 /// This data structure is used by the Zig language code generation and
@@ -185,7 +222,6 @@ pub const SourceLocation = struct {
 };
 
 pub const TypeId = std.meta.Tag(Type);
-pub const TypeInfo = @compileError("deprecated; use Type");
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
@@ -209,7 +245,6 @@ pub const Type = union(enum) {
     Enum: Enum,
     Union: Union,
     Fn: Fn,
-    BoundFn: Fn,
     Opaque: Opaque,
     Frame: Frame,
     AnyFrame: AnyFrame,
@@ -220,15 +255,13 @@ pub const Type = union(enum) {
     /// therefore must be kept in sync with the compiler implementation.
     pub const Int = struct {
         signedness: Signedness,
-        /// TODO make this u16 instead of comptime_int
-        bits: comptime_int,
+        bits: u16,
     };
 
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
     pub const Float = struct {
-        /// TODO make this u16 instead of comptime_int
-        bits: comptime_int,
+        bits: u16,
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -250,7 +283,7 @@ pub const Type = union(enum) {
 
         /// This data structure is used by the Zig language code generation and
         /// therefore must be kept in sync with the compiler implementation.
-        pub const Size = enum {
+        pub const Size = enum(u2) {
             One,
             Many,
             Slice,
@@ -282,8 +315,7 @@ pub const Type = union(enum) {
     /// therefore must be kept in sync with the compiler implementation.
     pub const StructField = struct {
         name: []const u8,
-        /// TODO rename to `type`
-        field_type: type,
+        type: type,
         default_value: ?*const anyopaque,
         is_comptime: bool,
         alignment: comptime_int,
@@ -333,8 +365,6 @@ pub const Type = union(enum) {
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
     pub const Enum = struct {
-        /// TODO enums should no longer have this field in type info.
-        layout: ContainerLayout,
         tag_type: type,
         fields: []const EnumField,
         decls: []const Declaration,
@@ -345,7 +375,7 @@ pub const Type = union(enum) {
     /// therefore must be kept in sync with the compiler implementation.
     pub const UnionField = struct {
         name: []const u8,
-        field_type: type,
+        type: type,
         alignment: comptime_int,
     };
 
@@ -358,8 +388,6 @@ pub const Type = union(enum) {
         decls: []const Declaration,
     };
 
-    pub const FnArg = @compileError("deprecated; use Fn.Param");
-
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
     pub const Fn = struct {
@@ -369,14 +397,14 @@ pub const Type = union(enum) {
         is_var_args: bool,
         /// TODO change the language spec to make this not optional.
         return_type: ?type,
-        args: []const Param,
+        params: []const Param,
 
         /// This data structure is used by the Zig language code generation and
         /// therefore must be kept in sync with the compiler implementation.
         pub const Param = struct {
             is_generic: bool,
             is_noalias: bool,
-            arg_type: ?type,
+            type: ?type,
         };
     };
 
@@ -409,7 +437,6 @@ pub const Type = union(enum) {
     /// therefore must be kept in sync with the compiler implementation.
     pub const Declaration = struct {
         name: []const u8,
-        is_pub: bool,
     };
 };
 
@@ -458,178 +485,119 @@ pub const WasiExecModel = enum {
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-pub const Version = struct {
-    major: u32,
-    minor: u32,
-    patch: u32 = 0,
+pub const CallModifier = enum {
+    /// Equivalent to function call syntax.
+    auto,
 
-    pub const Range = struct {
-        min: Version,
-        max: Version,
+    /// Equivalent to async keyword used with function call syntax.
+    async_kw,
 
-        pub fn includesVersion(self: Range, ver: Version) bool {
-            if (self.min.order(ver) == .gt) return false;
-            if (self.max.order(ver) == .lt) return false;
-            return true;
-        }
+    /// Prevents tail call optimization. This guarantees that the return
+    /// address will point to the callsite, as opposed to the callsite's
+    /// callsite. If the call is otherwise required to be tail-called
+    /// or inlined, a compile error is emitted instead.
+    never_tail,
 
-        /// Checks if system is guaranteed to be at least `version` or older than `version`.
-        /// Returns `null` if a runtime check is required.
-        pub fn isAtLeast(self: Range, ver: Version) ?bool {
-            if (self.min.order(ver) != .lt) return true;
-            if (self.max.order(ver) == .lt) return false;
-            return null;
-        }
-    };
+    /// Guarantees that the call will not be inlined. If the call is
+    /// otherwise required to be inlined, a compile error is emitted instead.
+    never_inline,
 
-    pub fn order(lhs: Version, rhs: Version) std.math.Order {
-        if (lhs.major < rhs.major) return .lt;
-        if (lhs.major > rhs.major) return .gt;
-        if (lhs.minor < rhs.minor) return .lt;
-        if (lhs.minor > rhs.minor) return .gt;
-        if (lhs.patch < rhs.patch) return .lt;
-        if (lhs.patch > rhs.patch) return .gt;
-        return .eq;
-    }
+    /// Asserts that the function call will not suspend. This allows a
+    /// non-async function to call an async function.
+    no_async,
 
-    pub fn parse(text: []const u8) !Version {
-        var end: usize = 0;
-        while (end < text.len) : (end += 1) {
-            const c = text[end];
-            if (!std.ascii.isDigit(c) and c != '.') break;
-        }
-        // found no digits or '.' before unexpected character
-        if (end == 0) return error.InvalidVersion;
+    /// Guarantees that the call will be generated with tail call optimization.
+    /// If this is not possible, a compile error is emitted instead.
+    always_tail,
 
-        var it = std.mem.split(u8, text[0..end], ".");
-        // substring is not empty, first call will succeed
-        const major = it.first();
-        if (major.len == 0) return error.InvalidVersion;
-        const minor = it.next() orelse "0";
-        // ignore 'patch' if 'minor' is invalid
-        const patch = if (minor.len == 0) "0" else (it.next() orelse "0");
+    /// Guarantees that the call will be inlined at the callsite.
+    /// If this is not possible, a compile error is emitted instead.
+    always_inline,
 
-        return Version{
-            .major = try std.fmt.parseUnsigned(u32, major, 10),
-            .minor = try std.fmt.parseUnsigned(u32, if (minor.len == 0) "0" else minor, 10),
-            .patch = try std.fmt.parseUnsigned(u32, if (patch.len == 0) "0" else patch, 10),
-        };
-    }
-
-    pub fn format(
-        self: Version,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        out_stream: anytype,
-    ) !void {
-        _ = options;
-        if (fmt.len == 0) {
-            if (self.patch == 0) {
-                if (self.minor == 0) {
-                    return std.fmt.format(out_stream, "{d}", .{self.major});
-                } else {
-                    return std.fmt.format(out_stream, "{d}.{d}", .{ self.major, self.minor });
-                }
-            } else {
-                return std.fmt.format(out_stream, "{d}.{d}.{d}", .{ self.major, self.minor, self.patch });
-            }
-        } else {
-            @compileError("Unknown format string: '" ++ fmt ++ "'");
-        }
-    }
+    /// Evaluates the call at compile-time. If the call cannot be completed at
+    /// compile-time, a compile error is emitted instead.
+    compile_time,
 };
-
-test "Version.parse" {
-    @setEvalBranchQuota(3000);
-    try testVersionParse();
-    comptime (try testVersionParse());
-}
-
-fn testVersionParse() !void {
-    const f = struct {
-        fn eql(text: []const u8, v1: u32, v2: u32, v3: u32) !void {
-            const v = try Version.parse(text);
-            try std.testing.expect(v.major == v1 and v.minor == v2 and v.patch == v3);
-        }
-
-        fn err(text: []const u8, expected_err: anyerror) !void {
-            _ = Version.parse(text) catch |actual_err| {
-                if (actual_err == expected_err) return;
-                return actual_err;
-            };
-            return error.Unreachable;
-        }
-    };
-
-    try f.eql("2.6.32.11-svn21605", 2, 6, 32); // Debian PPC
-    try f.eql("2.11.2(0.329/5/3)", 2, 11, 2); // MinGW
-    try f.eql("5.4.0-1018-raspi", 5, 4, 0); // Ubuntu
-    try f.eql("5.7.12_3", 5, 7, 12); // Void
-    try f.eql("2.13-DEVELOPMENT", 2, 13, 0); // DragonFly
-    try f.eql("2.3-35", 2, 3, 0);
-    try f.eql("1a.4", 1, 0, 0);
-    try f.eql("3.b1.0", 3, 0, 0);
-    try f.eql("1.4beta", 1, 4, 0);
-    try f.eql("2.7.pre", 2, 7, 0);
-    try f.eql("0..3", 0, 0, 0);
-    try f.eql("8.008.", 8, 8, 0);
-    try f.eql("01...", 1, 0, 0);
-    try f.eql("55", 55, 0, 0);
-    try f.eql("4294967295.0.1", 4294967295, 0, 1);
-    try f.eql("429496729_6", 429496729, 0, 0);
-
-    try f.err("foobar", error.InvalidVersion);
-    try f.err("", error.InvalidVersion);
-    try f.err("-1", error.InvalidVersion);
-    try f.err("+4", error.InvalidVersion);
-    try f.err(".", error.InvalidVersion);
-    try f.err("....3", error.InvalidVersion);
-    try f.err("4294967296", error.Overflow);
-    try f.err("5000877755", error.Overflow);
-    // error.InvalidCharacter is not possible anymore
-}
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-pub const CallOptions = struct {
-    modifier: Modifier = .auto,
+pub const VaListAarch64 = extern struct {
+    __stack: *anyopaque,
+    __gr_top: *anyopaque,
+    __vr_top: *anyopaque,
+    __gr_offs: c_int,
+    __vr_offs: c_int,
+};
 
-    /// Only valid when `Modifier` is `Modifier.async_kw`.
-    stack: ?[]align(std.Target.stack_align) u8 = null,
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const VaListHexagon = extern struct {
+    __gpr: c_long,
+    __fpr: c_long,
+    __overflow_arg_area: *anyopaque,
+    __reg_save_area: *anyopaque,
+};
 
-    pub const Modifier = enum {
-        /// Equivalent to function call syntax.
-        auto,
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const VaListPowerPc = extern struct {
+    gpr: u8,
+    fpr: u8,
+    reserved: c_ushort,
+    overflow_arg_area: *anyopaque,
+    reg_save_area: *anyopaque,
+};
 
-        /// Equivalent to async keyword used with function call syntax.
-        async_kw,
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const VaListS390x = extern struct {
+    __current_saved_reg_area_pointer: *anyopaque,
+    __saved_reg_area_end_pointer: *anyopaque,
+    __overflow_area_pointer: *anyopaque,
+};
 
-        /// Prevents tail call optimization. This guarantees that the return
-        /// address will point to the callsite, as opposed to the callsite's
-        /// callsite. If the call is otherwise required to be tail-called
-        /// or inlined, a compile error is emitted instead.
-        never_tail,
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const VaListX86_64 = extern struct {
+    gp_offset: c_uint,
+    fp_offset: c_uint,
+    overflow_arg_area: *anyopaque,
+    reg_save_area: *anyopaque,
+};
 
-        /// Guarantees that the call will not be inlined. If the call is
-        /// otherwise required to be inlined, a compile error is emitted instead.
-        never_inline,
-
-        /// Asserts that the function call will not suspend. This allows a
-        /// non-async function to call an async function.
-        no_async,
-
-        /// Guarantees that the call will be generated with tail call optimization.
-        /// If this is not possible, a compile error is emitted instead.
-        always_tail,
-
-        /// Guarantees that the call will inlined at the callsite.
-        /// If this is not possible, a compile error is emitted instead.
-        always_inline,
-
-        /// Evaluates the call at compile-time. If the call cannot be completed at
-        /// compile-time, a compile error is emitted instead.
-        compile_time,
-    };
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const VaList = switch (builtin.cpu.arch) {
+    .aarch64, .aarch64_be => switch (builtin.os.tag) {
+        .windows => *u8,
+        .ios, .macos, .tvos, .watchos => *u8,
+        else => @compileError("disabled due to miscompilations"), // VaListAarch64,
+    },
+    .arm => switch (builtin.os.tag) {
+        .ios, .macos, .tvos, .watchos => *u8,
+        else => *anyopaque,
+    },
+    .amdgcn => *u8,
+    .avr => *anyopaque,
+    .bpfel, .bpfeb => *anyopaque,
+    .hexagon => if (builtin.target.isMusl()) VaListHexagon else *u8,
+    .mips, .mipsel, .mips64, .mips64el => *anyopaque,
+    .riscv32, .riscv64 => *anyopaque,
+    .powerpc, .powerpcle => switch (builtin.os.tag) {
+        .ios, .macos, .tvos, .watchos, .aix => *u8,
+        else => VaListPowerPc,
+    },
+    .powerpc64, .powerpc64le => *u8,
+    .sparc, .sparcel, .sparc64 => *anyopaque,
+    .spirv32, .spirv64 => *anyopaque,
+    .s390x => VaListS390x,
+    .wasm32, .wasm64 => *anyopaque,
+    .x86 => *u8,
+    .x86_64 => switch (builtin.os.tag) {
+        .windows => @compileError("disabled due to miscompilations"), // *u8,
+        else => VaListX86_64,
+    },
+    else => @compileError("VaList not supported for this target yet"),
 };
 
 /// This data structure is used by the Zig language code generation and
@@ -637,13 +605,15 @@ pub const CallOptions = struct {
 pub const PrefetchOptions = struct {
     /// Whether the prefetch should prepare for a read or a write.
     rw: Rw = .read,
+    /// The data's locality in an inclusive range from 0 to 3.
+    ///
     /// 0 means no temporal locality. That is, the data can be immediately
     /// dropped from the cache after it is accessed.
     ///
     /// 3 means high temporal locality. That is, the data should be kept in
     /// the cache as it is likely to be accessed again soon.
     locality: u2 = 3,
-    /// The cache that the prefetch should be preformed on.
+    /// The cache that the prefetch should be performed on.
     cache: Cache = .data,
 
     pub const Rw = enum(u1) {
@@ -697,8 +667,9 @@ pub const CompilerBackend = enum(u64) {
     /// in which case this value is appropriate. Be cool and make sure your
     /// code supports `other` Zig compilers!
     other = 0,
-    /// The original Zig compiler created in 2015 by Andrew Kelley.
-    /// Implemented in C++. Uses LLVM.
+    /// The original Zig compiler created in 2015 by Andrew Kelley. Implemented
+    /// in C++. Used LLVM. Deleted from the ZSF ziglang/zig codebase on
+    /// December 6th, 2022.
     stage1 = 1,
     /// The reference implementation self-hosted compiler of Zig, using the
     /// LLVM backend.
@@ -729,6 +700,9 @@ pub const CompilerBackend = enum(u64) {
     /// The reference implementation self-hosted compiler of Zig, using the
     /// sparc64 backend.
     stage2_sparc64 = 10,
+    /// The reference implementation self-hosted compiler of Zig, using the
+    /// spirv backend.
+    stage2_spirv64 = 11,
 
     _,
 };
@@ -737,7 +711,7 @@ pub const CompilerBackend = enum(u64) {
 /// therefore must be kept in sync with the compiler implementation.
 pub const TestFn = struct {
     name: []const u8,
-    func: std.meta.FnPtr(fn () anyerror!void),
+    func: *const fn () anyerror!void,
     async_frame_size: ?usize,
 };
 
@@ -759,16 +733,16 @@ else
 pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr: ?usize) noreturn {
     @setCold(true);
 
-    // Until self-hosted catches up with stage1 language features, we have a simpler
-    // default panic function:
-    if (builtin.zig_backend == .stage2_c or
-        builtin.zig_backend == .stage2_wasm or
+    // For backends that cannot handle the language features depended on by the
+    // default panic handler, we have a simpler panic handler:
+    if (builtin.zig_backend == .stage2_wasm or
         builtin.zig_backend == .stage2_arm or
         builtin.zig_backend == .stage2_aarch64 or
         builtin.zig_backend == .stage2_x86_64 or
         builtin.zig_backend == .stage2_x86 or
         builtin.zig_backend == .stage2_riscv64 or
-        builtin.zig_backend == .stage2_sparc64)
+        builtin.zig_backend == .stage2_sparc64 or
+        builtin.zig_backend == .stage2_spirv64)
     {
         while (true) {
             @breakpoint();
@@ -811,7 +785,7 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr
 
                     exit_size.* = 256;
 
-                    return @ptrCast([*:0]u16, utf16.ptr);
+                    return @as([*:0]u16, @ptrCast(utf16.ptr));
                 }
             };
 
@@ -833,7 +807,7 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr
             // Didn't have boot_services, just fallback to whatever.
             std.os.abort();
         },
-        .cuda => std.os.abort(),
+        .cuda, .amdhsa => std.os.abort(),
         else => {
             const first_trace_addr = ret_addr orelse @returnAddress();
             std.debug.panicImpl(error_return_trace, first_trace_addr, msg);
@@ -861,6 +835,44 @@ pub fn panicOutOfBounds(index: usize, len: usize) noreturn {
     @setCold(true);
     std.debug.panicExtra(null, @returnAddress(), "index out of bounds: index {d}, len {d}", .{ index, len });
 }
+
+pub fn panicStartGreaterThanEnd(start: usize, end: usize) noreturn {
+    @setCold(true);
+    std.debug.panicExtra(null, @returnAddress(), "start index {d} is larger than end index {d}", .{ start, end });
+}
+
+pub fn panicInactiveUnionField(active: anytype, wanted: @TypeOf(active)) noreturn {
+    @setCold(true);
+    std.debug.panicExtra(null, @returnAddress(), "access of union field '{s}' while field '{s}' is active", .{ @tagName(wanted), @tagName(active) });
+}
+
+pub const panic_messages = struct {
+    pub const unreach = "reached unreachable code";
+    pub const unwrap_null = "attempt to use null value";
+    pub const cast_to_null = "cast causes pointer to be null";
+    pub const incorrect_alignment = "incorrect alignment";
+    pub const invalid_error_code = "invalid error code";
+    pub const cast_truncated_data = "integer cast truncated bits";
+    pub const negative_to_unsigned = "attempt to cast negative value to unsigned integer";
+    pub const integer_overflow = "integer overflow";
+    pub const shl_overflow = "left shift overflowed bits";
+    pub const shr_overflow = "right shift overflowed bits";
+    pub const divide_by_zero = "division by zero";
+    pub const exact_division_remainder = "exact division produced remainder";
+    pub const inactive_union_field = "access of inactive union field";
+    pub const integer_part_out_of_bounds = "integer part of floating point value out of bounds";
+    pub const corrupt_switch = "switch on corrupt value";
+    pub const shift_rhs_too_big = "shift amount is greater than the type size";
+    pub const invalid_enum_value = "invalid enum value";
+    pub const sentinel_mismatch = "sentinel mismatch";
+    pub const unwrap_error = "attempt to unwrap error";
+    pub const index_out_of_bounds = "index out of bounds";
+    pub const start_index_greater_than_end = "start index is larger than end index";
+    pub const for_len_mismatch = "for loop over objects with non-equal lengths";
+    pub const memcpy_len_mismatch = "@memcpy arguments have non-equal lengths";
+    pub const memcpy_alias = "@memcpy arguments alias";
+    pub const noreturn_returned = "'noreturn' function returned";
+};
 
 pub noinline fn returnError(st: *StackTrace) void {
     @setCold(true);

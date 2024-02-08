@@ -18,13 +18,13 @@ pub fn timingSafeEql(comptime T: type, a: T, b: T) bool {
                 @compileError("Elements to be compared must be integers");
             }
             var acc = @as(C, 0);
-            for (a) |x, i| {
+            for (a, 0..) |x, i| {
                 acc |= x ^ b[i];
             }
             const s = @typeInfo(C).Int.bits;
             const Cu = std.meta.Int(.unsigned, s);
             const Cext = std.meta.Int(.unsigned, s + 1);
-            return @bitCast(bool, @truncate(u1, (@as(Cext, @bitCast(Cu, acc)) -% 1) >> s));
+            return @as(bool, @bitCast(@as(u1, @truncate((@as(Cext, @as(Cu, @bitCast(acc))) -% 1) >> s))));
         },
         .Vector => |info| {
             const C = info.child;
@@ -35,7 +35,7 @@ pub fn timingSafeEql(comptime T: type, a: T, b: T) bool {
             const s = @typeInfo(C).Int.bits;
             const Cu = std.meta.Int(.unsigned, s);
             const Cext = std.meta.Int(.unsigned, s + 1);
-            return @bitCast(bool, @truncate(u1, (@as(Cext, @bitCast(Cu, acc)) -% 1) >> s));
+            return @as(bool, @bitCast(@as(u1, @truncate((@as(Cext, @as(Cu, @bitCast(acc))) -% 1) >> s))));
         },
         else => {
             @compileError("Only arrays and vectors can be compared");
@@ -60,14 +60,14 @@ pub fn timingSafeCompare(comptime T: type, a: []const T, b: []const T, endian: E
             i -= 1;
             const x1 = a[i];
             const x2 = b[i];
-            gt |= @truncate(T, (@as(Cext, x2) -% @as(Cext, x1)) >> bits) & eq;
-            eq &= @truncate(T, (@as(Cext, (x2 ^ x1)) -% 1) >> bits);
+            gt |= @as(T, @truncate((@as(Cext, x2) -% @as(Cext, x1)) >> bits)) & eq;
+            eq &= @as(T, @truncate((@as(Cext, (x2 ^ x1)) -% 1) >> bits));
         }
     } else {
-        for (a) |x1, i| {
+        for (a, 0..) |x1, i| {
             const x2 = b[i];
-            gt |= @truncate(T, (@as(Cext, x2) -% @as(Cext, x1)) >> bits) & eq;
-            eq &= @truncate(T, (@as(Cext, (x2 ^ x1)) -% 1) >> bits);
+            gt |= @as(T, @truncate((@as(Cext, x2) -% @as(Cext, x1)) >> bits)) & eq;
+            eq &= @as(T, @truncate((@as(Cext, (x2 ^ x1)) -% 1) >> bits));
         }
     }
     if (gt != 0) {
@@ -87,18 +87,22 @@ pub fn timingSafeAdd(comptime T: type, a: []const T, b: []const T, result: []T, 
     if (endian == .Little) {
         var i: usize = 0;
         while (i < len) : (i += 1) {
-            const tmp = @boolToInt(@addWithOverflow(u8, a[i], b[i], &result[i]));
-            carry = tmp | @boolToInt(@addWithOverflow(u8, result[i], carry, &result[i]));
+            const ov1 = @addWithOverflow(a[i], b[i]);
+            const ov2 = @addWithOverflow(ov1[0], carry);
+            result[i] = ov2[0];
+            carry = ov1[1] | ov2[1];
         }
     } else {
         var i: usize = len;
         while (i != 0) {
             i -= 1;
-            const tmp = @boolToInt(@addWithOverflow(u8, a[i], b[i], &result[i]));
-            carry = tmp | @boolToInt(@addWithOverflow(u8, result[i], carry, &result[i]));
+            const ov1 = @addWithOverflow(a[i], b[i]);
+            const ov2 = @addWithOverflow(ov1[0], carry);
+            result[i] = ov2[0];
+            carry = ov1[1] | ov2[1];
         }
     }
-    return @bitCast(bool, carry);
+    return @as(bool, @bitCast(carry));
 }
 
 /// Subtract two integers serialized as arrays of the same size, in constant time.
@@ -110,28 +114,28 @@ pub fn timingSafeSub(comptime T: type, a: []const T, b: []const T, result: []T, 
     if (endian == .Little) {
         var i: usize = 0;
         while (i < len) : (i += 1) {
-            const tmp = @boolToInt(@subWithOverflow(u8, a[i], b[i], &result[i]));
-            borrow = tmp | @boolToInt(@subWithOverflow(u8, result[i], borrow, &result[i]));
+            const ov1 = @subWithOverflow(a[i], b[i]);
+            const ov2 = @subWithOverflow(ov1[0], borrow);
+            result[i] = ov2[0];
+            borrow = ov1[1] | ov2[1];
         }
     } else {
         var i: usize = len;
         while (i != 0) {
             i -= 1;
-            const tmp = @boolToInt(@subWithOverflow(u8, a[i], b[i], &result[i]));
-            borrow = tmp | @boolToInt(@subWithOverflow(u8, result[i], borrow, &result[i]));
+            const ov1 = @subWithOverflow(a[i], b[i]);
+            const ov2 = @subWithOverflow(ov1[0], borrow);
+            result[i] = ov2[0];
+            borrow = ov1[1] | ov2[1];
         }
     }
-    return @bitCast(bool, borrow);
+    return @as(bool, @bitCast(borrow));
 }
 
 /// Sets a slice to zeroes.
 /// Prevents the store from being optimized out.
-pub fn secureZero(comptime T: type, s: []T) void {
-    // NOTE: We do not use a volatile slice cast here since LLVM cannot
-    // see that it can be replaced by a memset.
-    const ptr = @ptrCast([*]volatile u8, s.ptr);
-    const length = s.len * @sizeOf(T);
-    @memset(ptr, 0, length);
+pub inline fn secureZero(comptime T: type, s: []T) void {
+    @memset(@as([]volatile T, s), 0);
 }
 
 test "crypto.utils.timingSafeEql" {
@@ -140,7 +144,7 @@ test "crypto.utils.timingSafeEql" {
     random.bytes(a[0..]);
     random.bytes(b[0..]);
     try testing.expect(!timingSafeEql([100]u8, a, b));
-    mem.copy(u8, a[0..], b[0..]);
+    a = b;
     try testing.expect(timingSafeEql([100]u8, a, b));
 }
 
@@ -193,7 +197,7 @@ test "crypto.utils.secureZero" {
     var a = [_]u8{0xfe} ** 8;
     var b = [_]u8{0xfe} ** 8;
 
-    mem.set(u8, a[0..], 0);
+    @memset(a[0..], 0);
     secureZero(u8, b[0..]);
 
     try testing.expectEqualSlices(u8, a[0..], b[0..]);

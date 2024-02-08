@@ -1,8 +1,12 @@
+const root = @import("root");
+
 /// Authenticated Encryption with Associated Data
 pub const aead = struct {
     pub const aegis = struct {
         pub const Aegis128L = @import("crypto/aegis.zig").Aegis128L;
+        pub const Aegis128L_256 = @import("crypto/aegis.zig").Aegis128L_256;
         pub const Aegis256 = @import("crypto/aegis.zig").Aegis256;
+        pub const Aegis256_256 = @import("crypto/aegis.zig").Aegis256_256;
     };
 
     pub const aes_gcm = struct {
@@ -14,8 +18,6 @@ pub const aead = struct {
         pub const Aes128Ocb = @import("crypto/aes_ocb.zig").Aes128Ocb;
         pub const Aes256Ocb = @import("crypto/aes_ocb.zig").Aes256Ocb;
     };
-
-    pub const Gimli = @import("crypto/gimli.zig").Aead;
 
     pub const chacha_poly = struct {
         pub const ChaCha20Poly1305 = @import("crypto/chacha20.zig").ChaCha20Poly1305;
@@ -37,13 +39,21 @@ pub const aead = struct {
 pub const auth = struct {
     pub const hmac = @import("crypto/hmac.zig");
     pub const siphash = @import("crypto/siphash.zig");
+    pub const aegis = struct {
+        pub const Aegis128LMac = @import("crypto/aegis.zig").Aegis128LMac;
+        pub const Aegis128LMac_128 = @import("crypto/aegis.zig").Aegis128LMac_128;
+        pub const Aegis256Mac = @import("crypto/aegis.zig").Aegis256Mac;
+        pub const Aegis256Mac_128 = @import("crypto/aegis.zig").Aegis256Mac_128;
+    };
+    pub const cmac = @import("crypto/cmac.zig");
 };
 
 /// Core functions, that should rarely be used directly by applications.
 pub const core = struct {
     pub const aes = @import("crypto/aes.zig");
-    pub const Gimli = @import("crypto/gimli.zig").State;
-    pub const Xoodoo = @import("crypto/xoodoo.zig").State;
+    pub const keccak = @import("crypto/keccak_p.zig");
+
+    pub const Ascon = @import("crypto/ascon.zig").State;
 
     /// Modes are generic compositions to construct encryption/decryption functions from block ciphers and permutations.
     ///
@@ -56,6 +66,11 @@ pub const core = struct {
 /// Diffie-Hellman key exchange functions.
 pub const dh = struct {
     pub const X25519 = @import("crypto/25519/x25519.zig").X25519;
+};
+
+/// Key Encapsulation Mechanisms.
+pub const kem = struct {
+    pub const kyber_d00 = @import("crypto/kyber_d00.zig");
 };
 
 /// Elliptic-curve arithmetic.
@@ -72,7 +87,6 @@ pub const ecc = struct {
 pub const hash = struct {
     pub const blake2 = @import("crypto/blake2.zig");
     pub const Blake3 = @import("crypto/blake3.zig").Blake3;
-    pub const Gimli = @import("crypto/gimli.zig").Hash;
     pub const Md5 = @import("crypto/md5.zig").Md5;
     pub const Sha1 = @import("crypto/sha1.zig").Sha1;
     pub const sha2 = @import("crypto/sha2.zig");
@@ -87,7 +101,8 @@ pub const kdf = struct {
 
 /// MAC functions requiring single-use secret keys.
 pub const onetimeauth = struct {
-    pub const Ghash = @import("crypto/ghash.zig").Ghash;
+    pub const Ghash = @import("crypto/ghash_polyval.zig").Ghash;
+    pub const Polyval = @import("crypto/ghash_polyval.zig").Polyval;
     pub const Poly1305 = @import("crypto/poly1305.zig").Poly1305;
 };
 
@@ -164,6 +179,9 @@ pub const nacl = struct {
 
 pub const utils = @import("crypto/utils.zig");
 
+/// Finite-field arithmetic.
+pub const ff = @import("crypto/ff.zig");
+
 /// This is a thread-local, cryptographically secure pseudo random number generator.
 pub const random = @import("crypto/tlcsprng.zig").interface;
 
@@ -171,10 +189,31 @@ const std = @import("std.zig");
 
 pub const errors = @import("crypto/errors.zig");
 
-test {
-    const please_windows_dont_oom = @import("builtin").os.tag == .windows;
-    if (please_windows_dont_oom) return error.SkipZigTest;
+pub const tls = @import("crypto/tls.zig");
+pub const Certificate = @import("crypto/Certificate.zig");
 
+/// Side-channels mitigations.
+pub const SideChannelsMitigations = enum {
+    /// No additional side-channel mitigations are applied.
+    /// This is the fastest mode.
+    none,
+    /// The `basic` mode protects against most practical attacks, provided that the
+    /// application or implements proper defenses against brute-force attacks.
+    /// It offers a good balance between performance and security.
+    basic,
+    /// The `medium` mode offers increased resilience against side-channel attacks,
+    /// making most attacks unpractical even on shared/low latency environements.
+    /// This is the default mode.
+    medium,
+    /// The `full` mode offers the highest level of protection against side-channel attacks.
+    /// Note that this doesn't cover all possible attacks (especially power analysis or
+    /// thread-local attacks such as cachebleed), and that the performance impact is significant.
+    full,
+};
+
+pub const default_side_channels_mitigations = .medium;
+
+test {
     _ = aead.aegis.Aegis128L;
     _ = aead.aegis.Aegis256;
 
@@ -183,8 +222,6 @@ test {
 
     _ = aead.aes_ocb.Aes128Ocb;
     _ = aead.aes_ocb.Aes256Ocb;
-
-    _ = aead.Gimli;
 
     _ = aead.chacha_poly.ChaCha20Poly1305;
     _ = aead.chacha_poly.ChaCha12Poly1305;
@@ -197,13 +234,16 @@ test {
     _ = aead.salsa_poly.XSalsa20Poly1305;
 
     _ = auth.hmac;
+    _ = auth.cmac;
     _ = auth.siphash;
 
     _ = core.aes;
-    _ = core.Gimli;
+    _ = core.Ascon;
     _ = core.modes;
 
     _ = dh.X25519;
+
+    _ = kem.kyber_d00;
 
     _ = ecc.Curve25519;
     _ = ecc.Edwards25519;
@@ -214,7 +254,6 @@ test {
 
     _ = hash.blake2;
     _ = hash.Blake3;
-    _ = hash.Gimli;
     _ = hash.Md5;
     _ = hash.Sha1;
     _ = hash.sha2;
@@ -260,8 +299,11 @@ test {
     _ = nacl.SealedBox;
 
     _ = utils;
+    _ = ff;
     _ = random;
     _ = errors;
+    _ = tls;
+    _ = Certificate;
 }
 
 test "CSPRNG" {
@@ -290,7 +332,6 @@ test "issue #4532: no index out of bounds" {
         hash.blake2.Blake2b256,
         hash.blake2.Blake2b384,
         hash.blake2.Blake2b512,
-        hash.Gimli,
     };
 
     inline for (types) |Hasher| {

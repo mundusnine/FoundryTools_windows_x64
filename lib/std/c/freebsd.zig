@@ -1,4 +1,5 @@
 const std = @import("../std.zig");
+const assert = std.debug.assert;
 const builtin = @import("builtin");
 const maxInt = std.math.maxInt;
 const iovec = std.os.iovec;
@@ -7,7 +8,7 @@ const iovec_const = std.os.iovec_const;
 extern "c" fn __error() *c_int;
 pub const _errno = __error;
 
-pub extern "c" fn getdents(fd: c_int, buf_ptr: [*]u8, nbytes: usize) usize;
+pub extern "c" fn getdents(fd: c_int, buf_ptr: [*]u8, nbytes: usize) isize;
 pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
 pub extern "c" fn getrandom(buf_ptr: [*]u8, buf_len: usize, flags: c_uint) isize;
 
@@ -40,7 +41,7 @@ pub extern "c" fn sendfile(
     flags: u32,
 ) c_int;
 
-pub const dl_iterate_phdr_callback = std.meta.FnPtr(fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int);
+pub const dl_iterate_phdr_callback = *const fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int;
 pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*anyopaque) c_int;
 
 pub const pthread_mutex_t = extern struct {
@@ -154,6 +155,8 @@ pub const EAI = enum(c_int) {
 
 pub const EAI_MAX = 15;
 
+pub const IFNAMESIZE = 16;
+
 pub const AI = struct {
     /// get address to use bind()
     pub const PASSIVE = 0x00000001;
@@ -240,7 +243,7 @@ pub const RTLD = struct {
 
 pub const dl_phdr_info = extern struct {
     /// Module relocation base.
-    dlpi_addr: if (builtin.cpu.arch.ptrBitWidth() == 32) std.elf.Elf32_Addr else std.elf.Elf64_Addr,
+    dlpi_addr: if (builtin.target.ptrBitWidth() == 32) std.elf.Elf32_Addr else std.elf.Elf64_Addr,
     /// Module name.
     dlpi_name: ?[*:0]const u8,
     /// Pointer to module's phdr.
@@ -264,7 +267,7 @@ pub const Flock = extern struct {
     /// Lock owner.
     pid: pid_t,
     /// Lock type.
-    @"type": i16,
+    type: i16,
     /// Type of the start member.
     whence: i16,
     /// Remote system id or zero for local.
@@ -404,7 +407,16 @@ pub const sockaddr = extern struct {
     data: [14]u8,
 
     pub const SS_MAXSIZE = 128;
-    pub const storage = std.x.os.Socket.Address.Native.Storage;
+    pub const storage = extern struct {
+        len: u8 align(8),
+        family: sa_family_t,
+        padding: [126]u8 = undefined,
+
+        comptime {
+            assert(@sizeOf(storage) == SS_MAXSIZE);
+            assert(@alignOf(storage) == 8);
+        }
+    };
 
     pub const in = extern struct {
         len: u8 = @sizeOf(in),
@@ -441,7 +453,7 @@ pub const kinfo_file = extern struct {
     /// A zero value is for the sentinel record at the end of an array.
     structsize: c_int,
     /// Descriptor type.
-    @"type": c_int,
+    type: c_int,
     /// Array index.
     fd: fd_t,
     /// Reference count.
@@ -459,7 +471,7 @@ pub const kinfo_file = extern struct {
             /// Socket domain.
             domain: c_int,
             /// Socket type.
-            @"type": c_int,
+            type: c_int,
             /// Socket protocol.
             protocol: c_int,
             /// Socket address.
@@ -481,7 +493,7 @@ pub const kinfo_file = extern struct {
         },
         file: extern struct {
             /// Vnode type.
-            @"type": i32,
+            type: i32,
             // Reserved for future use
             _spare1: [3]i32,
             _spare2: [30]u64,
@@ -595,7 +607,7 @@ pub const CLOCK = struct {
 };
 
 pub const MAP = struct {
-    pub const FAILED = @intToPtr(*anyopaque, maxInt(usize));
+    pub const FAILED = @as(*anyopaque, @ptrFromInt(maxInt(usize)));
     pub const SHARED = 0x0001;
     pub const PRIVATE = 0x0002;
     pub const FIXED = 0x0010;
@@ -610,6 +622,25 @@ pub const MAP = struct {
     pub const NOCORE = 0x00020000;
     pub const PREFAULT_READ = 0x00040000;
     pub const @"32BIT" = 0x00080000;
+
+    pub fn ALIGNED(alignment: u32) u32 {
+        return alignment << 24;
+    }
+    pub const ALIGNED_SUPER = ALIGNED(1);
+};
+
+pub const MADV = struct {
+    pub const NORMAL = 0;
+    pub const RANDOM = 1;
+    pub const SEQUENTIAL = 2;
+    pub const WILLNEED = 3;
+    pub const DONTNEED = 4;
+    pub const FREE = 5;
+    pub const NOSYNC = 6;
+    pub const AUTOSYNC = 7;
+    pub const NOCORE = 8;
+    pub const CORE = 9;
+    pub const PROTECT = 10;
 };
 
 pub const MSF = struct {
@@ -628,7 +659,7 @@ pub const W = struct {
     pub const TRAPPED = 32;
 
     pub fn EXITSTATUS(s: u32) u8 {
-        return @intCast(u8, (s & 0xff00) >> 8);
+        return @as(u8, @intCast((s & 0xff00) >> 8));
     }
     pub fn TERMSIG(s: u32) u32 {
         return s & 0x7f;
@@ -640,7 +671,7 @@ pub const W = struct {
         return TERMSIG(s) == 0;
     }
     pub fn IFSTOPPED(s: u32) bool {
-        return @truncate(u16, (((s & 0xffff) *% 0x10001) >> 8)) > 0x7f00;
+        return @as(u16, @truncate((((s & 0xffff) *% 0x10001) >> 8))) > 0x7f00;
     }
     pub fn IFSIGNALED(s: u32) bool {
         return (s & 0xffff) -% 1 < 0xff;
@@ -701,9 +732,9 @@ pub const SIG = struct {
     pub const UNBLOCK = 2;
     pub const SETMASK = 3;
 
-    pub const DFL = @intToPtr(?Sigaction.handler_fn, 0);
-    pub const IGN = @intToPtr(?Sigaction.handler_fn, 1);
-    pub const ERR = @intToPtr(?Sigaction.handler_fn, maxInt(usize));
+    pub const DFL = @as(?Sigaction.handler_fn, @ptrFromInt(0));
+    pub const IGN = @as(?Sigaction.handler_fn, @ptrFromInt(1));
+    pub const ERR = @as(?Sigaction.handler_fn, @ptrFromInt(maxInt(usize)));
 
     pub const WORDS = 4;
     pub const MAXSIG = 128;
@@ -1200,8 +1231,8 @@ const NSIG = 32;
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
-    pub const handler_fn = std.meta.FnPtr(fn (c_int) align(1) callconv(.C) void);
-    pub const sigaction_fn = std.meta.FnPtr(fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void);
+    pub const handler_fn = *const fn (c_int) align(1) callconv(.C) void;
+    pub const sigaction_fn = *const fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
 
     /// signal handler
     handler: extern union {
@@ -1261,60 +1292,96 @@ pub const siginfo_t = extern struct {
     },
 };
 
-pub usingnamespace switch (builtin.cpu.arch) {
-    .x86_64 => struct {
-        pub const ucontext_t = extern struct {
-            sigmask: sigset_t,
-            mcontext: mcontext_t,
-            link: ?*ucontext_t,
-            stack: stack_t,
-            flags: c_int,
-            __spare__: [4]c_int,
-        };
-
-        /// XXX x86_64 specific
-        pub const mcontext_t = extern struct {
-            onstack: u64,
-            rdi: u64,
-            rsi: u64,
-            rdx: u64,
-            rcx: u64,
-            r8: u64,
-            r9: u64,
-            rax: u64,
-            rbx: u64,
-            rbp: u64,
-            r10: u64,
-            r11: u64,
-            r12: u64,
-            r13: u64,
-            r14: u64,
-            r15: u64,
-            trapno: u32,
-            fs: u16,
-            gs: u16,
-            addr: u64,
+pub const mcontext_t = switch (builtin.cpu.arch) {
+    .x86_64 => extern struct {
+        onstack: u64,
+        rdi: u64,
+        rsi: u64,
+        rdx: u64,
+        rcx: u64,
+        r8: u64,
+        r9: u64,
+        rax: u64,
+        rbx: u64,
+        rbp: u64,
+        r10: u64,
+        r11: u64,
+        r12: u64,
+        r13: u64,
+        r14: u64,
+        r15: u64,
+        trapno: u32,
+        fs: u16,
+        gs: u16,
+        addr: u64,
+        flags: u32,
+        es: u16,
+        ds: u16,
+        err: u64,
+        rip: u64,
+        cs: u64,
+        rflags: u64,
+        rsp: u64,
+        ss: u64,
+        len: u64,
+        fpformat: u64,
+        ownedfp: u64,
+        fpstate: [64]u64 align(16),
+        fsbase: u64,
+        gsbase: u64,
+        xfpustate: u64,
+        xfpustate_len: u64,
+        spare: [4]u64,
+    },
+    .aarch64 => extern struct {
+        gpregs: extern struct {
+            x: [30]u64,
+            lr: u64,
+            sp: u64,
+            elr: u64,
+            spsr: u32,
+            _pad: u32,
+        },
+        fpregs: extern struct {
+            q: [32]u128,
+            sr: u32,
+            cr: u32,
             flags: u32,
-            es: u16,
-            ds: u16,
-            err: u64,
-            rip: u64,
-            cs: u64,
-            rflags: u64,
-            rsp: u64,
-            ss: u64,
-            len: u64,
-            fpformat: u64,
-            ownedfp: u64,
-            fpstate: [64]u64 align(16),
-            fsbase: u64,
-            gsbase: u64,
-            xfpustate: u64,
-            xfpustate_len: u64,
-            spare: [4]u64,
-        };
+            _pad: u32,
+        },
+        flags: u32,
+        _pad: u32,
+        _spare: [8]u64,
     },
     else => struct {},
+};
+
+pub const REG = switch (builtin.cpu.arch) {
+    .aarch64 => struct {
+        pub const FP = 29;
+        pub const SP = 31;
+        pub const PC = 32;
+    },
+    .arm => struct {
+        pub const FP = 11;
+        pub const SP = 13;
+        pub const PC = 15;
+    },
+    .x86_64 => struct {
+        pub const RBP = 12;
+        pub const RIP = 21;
+        pub const RSP = 24;
+    },
+    else => struct {},
+};
+
+pub const ucontext_t = extern struct {
+    sigmask: sigset_t,
+    mcontext: mcontext_t,
+    link: ?*ucontext_t,
+    stack: stack_t,
+    flags: c_int,
+    __spare__: [4]c_int,
 };
 
 pub const E = enum(u16) {
@@ -1443,11 +1510,12 @@ pub const E = enum(u16) {
     CAPMODE = 94, // Not permitted in capability mode
     NOTRECOVERABLE = 95, // State not recoverable
     OWNERDEAD = 96, // Previous owner died
+    INTEGRITY = 97, // Integrity check failed
     _,
 };
 
 pub const MINSIGSTKSZ = switch (builtin.cpu.arch) {
-    .i386, .x86_64 => 2048,
+    .x86, .x86_64 => 2048,
     .arm, .aarch64 => 4096,
     else => @compileError("MINSIGSTKSZ not defined for this architecture"),
 };
@@ -1878,3 +1946,4 @@ pub const MFD = struct {
 };
 
 pub extern "c" fn memfd_create(name: [*:0]const u8, flags: c_uint) c_int;
+pub extern "c" fn copy_file_range(fd_in: fd_t, off_in: ?*off_t, fd_out: fd_t, off_out: ?*off_t, len: usize, flags: u32) usize;

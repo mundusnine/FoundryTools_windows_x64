@@ -1,5 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("../std.zig");
+const assert = std.debug.assert;
 const maxInt = std.math.maxInt;
 const iovec = std.os.iovec;
 
@@ -8,13 +9,13 @@ pub fn _errno() *c_int {
     return &errno;
 }
 
-pub extern "c" fn getdents(fd: c_int, buf_ptr: [*]u8, nbytes: usize) usize;
+pub extern "c" fn getdents(fd: c_int, buf_ptr: [*]u8, nbytes: usize) c_int;
 pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
 pub extern "c" fn getrandom(buf_ptr: [*]u8, buf_len: usize, flags: c_uint) isize;
 pub extern "c" fn pipe2(fds: *[2]fd_t, flags: u32) c_int;
 pub extern "c" fn arc4random_buf(buf: [*]u8, len: usize) void;
 
-pub const dl_iterate_phdr_callback = std.meta.FnPtr(fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int);
+pub const dl_iterate_phdr_callback = *const fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int;
 pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*anyopaque) c_int;
 
 pub extern "c" fn lwp_gettid() c_int;
@@ -170,7 +171,7 @@ pub const PROT = struct {
 
 pub const MAP = struct {
     pub const FILE = 0;
-    pub const FAILED = @intToPtr(*anyopaque, maxInt(usize));
+    pub const FAILED = @as(*anyopaque, @ptrFromInt(maxInt(usize)));
     pub const ANONYMOUS = ANON;
     pub const COPY = PRIVATE;
     pub const SHARED = 1;
@@ -206,7 +207,7 @@ pub const W = struct {
     pub const TRAPPED = 0x0020;
 
     pub fn EXITSTATUS(s: u32) u8 {
-        return @intCast(u8, (s & 0xff00) >> 8);
+        return @as(u8, @intCast((s & 0xff00) >> 8));
     }
     pub fn TERMSIG(s: u32) u32 {
         return s & 0x7f;
@@ -218,7 +219,7 @@ pub const W = struct {
         return TERMSIG(s) == 0;
     }
     pub fn IFSTOPPED(s: u32) bool {
-        return @truncate(u16, (((s & 0xffff) *% 0x10001) >> 8)) > 0x7f00;
+        return @as(u16, @truncate((((s & 0xffff) *% 0x10001) >> 8))) > 0x7f00;
     }
     pub fn IFSIGNALED(s: u32) bool {
         return (s & 0xffff) -% 1 < 0xff;
@@ -478,11 +479,20 @@ pub const CLOCK = struct {
 
 pub const sockaddr = extern struct {
     len: u8,
-    family: u8,
+    family: sa_family_t,
     data: [14]u8,
 
     pub const SS_MAXSIZE = 128;
-    pub const storage = std.x.os.Socket.Address.Native.Storage;
+    pub const storage = extern struct {
+        len: u8 align(8),
+        family: sa_family_t,
+        padding: [126]u8 = undefined,
+
+        comptime {
+            assert(@sizeOf(storage) == SS_MAXSIZE);
+            assert(@alignOf(storage) == 8);
+        }
+    };
 
     pub const in = extern struct {
         len: u8 = @sizeOf(in),
@@ -609,9 +619,9 @@ pub const S = struct {
 pub const BADSIG = SIG.ERR;
 
 pub const SIG = struct {
-    pub const DFL = @intToPtr(?Sigaction.handler_fn, 0);
-    pub const IGN = @intToPtr(?Sigaction.handler_fn, 1);
-    pub const ERR = @intToPtr(?Sigaction.handler_fn, maxInt(usize));
+    pub const DFL = @as(?Sigaction.handler_fn, @ptrFromInt(0));
+    pub const IGN = @as(?Sigaction.handler_fn, @ptrFromInt(1));
+    pub const ERR = @as(?Sigaction.handler_fn, @ptrFromInt(maxInt(usize)));
 
     pub const BLOCK = 1;
     pub const UNBLOCK = 2;
@@ -683,8 +693,8 @@ pub const empty_sigset = sigset_t{ .__bits = [_]c_uint{0} ** _SIG_WORDS };
 pub const sig_atomic_t = c_int;
 
 pub const Sigaction = extern struct {
-    pub const handler_fn = std.meta.FnPtr(fn (c_int) align(1) callconv(.C) void);
-    pub const sigaction_fn = std.meta.FnPtr(fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void);
+    pub const handler_fn = *const fn (c_int) align(1) callconv(.C) void;
+    pub const sigaction_fn = *const fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
 
     /// signal handler
     handler: extern union {
@@ -695,7 +705,7 @@ pub const Sigaction = extern struct {
     mask: sigset_t,
 };
 
-pub const sig_t = [*c]fn (c_int) callconv(.C) void;
+pub const sig_t = *const fn (c_int) callconv(.C) void;
 
 pub const SOCK = struct {
     pub const STREAM = 1;
@@ -860,10 +870,10 @@ pub const RTLD = struct {
     pub const NODELETE = 0x01000;
     pub const NOLOAD = 0x02000;
 
-    pub const NEXT = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -1)));
-    pub const DEFAULT = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -2)));
-    pub const SELF = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -3)));
-    pub const ALL = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -4)));
+    pub const NEXT = @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -1)))));
+    pub const DEFAULT = @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -2)))));
+    pub const SELF = @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -3)))));
+    pub const ALL = @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -4)))));
 };
 
 pub const dl_phdr_info = extern struct {
@@ -880,7 +890,7 @@ pub const cmsghdr = extern struct {
 pub const msghdr = extern struct {
     msg_name: ?*anyopaque,
     msg_namelen: socklen_t,
-    msg_iov: [*c]iovec,
+    msg_iov: [*]iovec,
     msg_iovlen: c_int,
     msg_control: ?*anyopaque,
     msg_controllen: socklen_t,
@@ -895,9 +905,9 @@ pub const cmsgcred = extern struct {
     cmcred_groups: [16]gid_t,
 };
 pub const sf_hdtr = extern struct {
-    headers: [*c]iovec,
+    headers: [*]iovec,
     hdr_cnt: c_int,
-    trailers: [*c]iovec,
+    trailers: [*]iovec,
     trl_cnt: c_int,
 };
 

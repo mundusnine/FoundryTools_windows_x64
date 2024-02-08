@@ -38,11 +38,11 @@ pub const Edwards25519 = struct {
         const vxx = x.sq().mul(v);
         const has_m_root = vxx.sub(u).isZero();
         const has_p_root = vxx.add(u).isZero();
-        if ((@boolToInt(has_m_root) | @boolToInt(has_p_root)) == 0) { // best-effort to avoid two conditional branches
+        if ((@intFromBool(has_m_root) | @intFromBool(has_p_root)) == 0) { // best-effort to avoid two conditional branches
             return error.InvalidEncoding;
         }
-        x.cMov(x.mul(Fe.sqrtm1), 1 - @boolToInt(has_m_root));
-        x.cMov(x.neg(), @boolToInt(x.isNegative()) ^ (s[31] >> 7));
+        x.cMov(x.mul(Fe.sqrtm1), 1 - @intFromBool(has_m_root));
+        x.cMov(x.neg(), @intFromBool(x.isNegative()) ^ (s[31] >> 7));
         const t = x.mul(y);
         return Edwards25519{ .x = x, .y = y, .z = z, .t = t };
     }
@@ -51,7 +51,7 @@ pub const Edwards25519 = struct {
     pub fn toBytes(p: Edwards25519) [encoded_length]u8 {
         const zi = p.z.invert();
         var s = p.y.mul(zi).toBytes();
-        s[31] ^= @as(u8, @boolToInt(p.x.mul(zi).isNegative())) << 7;
+        s[31] ^= @as(u8, @intFromBool(p.x.mul(zi).isNegative())) << 7;
         return s;
     }
 
@@ -81,6 +81,19 @@ pub const Edwards25519 = struct {
     /// Multiply a point by the cofactor
     pub fn clearCofactor(p: Edwards25519) Edwards25519 {
         return p.dbl().dbl().dbl();
+    }
+
+    /// Check that the point does not generate a low-order group.
+    /// Return a `WeakPublicKey` error if it does.
+    pub fn rejectLowOrder(p: Edwards25519) WeakPublicKeyError!void {
+        const zi = p.z.invert();
+        const x = p.x.mul(zi);
+        const y = p.y.mul(zi);
+        const x_neg = x.neg();
+        const iy = Fe.sqrtm1.mul(y);
+        if (x.isZero() or y.isZero() or iy.equivalent(x) or iy.equivalent(x_neg)) {
+            return error.WeakPublicKey;
+        }
     }
 
     /// Flip the sign of the X coordinate.
@@ -124,7 +137,7 @@ pub const Edwards25519 = struct {
         };
     }
 
-    /// Substract two Edwards25519 points.
+    /// Subtract two Edwards25519 points.
     pub fn sub(p: Edwards25519, q: Edwards25519) Edwards25519 {
         return p.add(q.neg());
     }
@@ -148,9 +161,9 @@ pub const Edwards25519 = struct {
     fn slide(s: [32]u8) [2 * 32]i8 {
         const reduced = if ((s[s.len - 1] & 0x80) == 0) s else scalar.reduce(s);
         var e: [2 * 32]i8 = undefined;
-        for (reduced) |x, i| {
-            e[i * 2 + 0] = @as(i8, @truncate(u4, x));
-            e[i * 2 + 1] = @as(i8, @truncate(u4, x >> 4));
+        for (reduced, 0..) |x, i| {
+            e[i * 2 + 0] = @as(i8, @as(u4, @truncate(x)));
+            e[i * 2 + 1] = @as(i8, @as(u4, @truncate(x >> 4)));
         }
         // Now, e[0..63] is between 0 and 15, e[63] is between 0 and 7
         var carry: i8 = 0;
@@ -177,9 +190,9 @@ pub const Edwards25519 = struct {
         while (true) : (pos -= 1) {
             const slot = e[pos];
             if (slot > 0) {
-                q = q.add(pc[@intCast(usize, slot)]);
+                q = q.add(pc[@as(usize, @intCast(slot))]);
             } else if (slot < 0) {
-                q = q.sub(pc[@intCast(usize, -slot)]);
+                q = q.sub(pc[@as(usize, @intCast(-slot))]);
             }
             if (pos == 0) break;
             q = q.dbl().dbl().dbl().dbl();
@@ -193,7 +206,7 @@ pub const Edwards25519 = struct {
         var q = Edwards25519.identityElement;
         var pos: usize = 252;
         while (true) : (pos -= 4) {
-            const slot = @truncate(u4, (s[pos >> 3] >> @truncate(u3, pos)));
+            const slot: u4 = @truncate((s[pos >> 3] >> @as(u3, @truncate(pos))));
             if (vartime) {
                 if (slot != 0) {
                     q = q.add(pc[slot]);
@@ -270,15 +283,15 @@ pub const Edwards25519 = struct {
         while (true) : (pos -= 1) {
             const slot1 = e1[pos];
             if (slot1 > 0) {
-                q = q.add(pc1[@intCast(usize, slot1)]);
+                q = q.add(pc1[@as(usize, @intCast(slot1))]);
             } else if (slot1 < 0) {
-                q = q.sub(pc1[@intCast(usize, -slot1)]);
+                q = q.sub(pc1[@as(usize, @intCast(-slot1))]);
             }
             const slot2 = e2[pos];
             if (slot2 > 0) {
-                q = q.add(pc2[@intCast(usize, slot2)]);
+                q = q.add(pc2[@as(usize, @intCast(slot2))]);
             } else if (slot2 < 0) {
-                q = q.sub(pc2[@intCast(usize, -slot2)]);
+                q = q.sub(pc2[@as(usize, @intCast(-slot2))]);
             }
             if (pos == 0) break;
             q = q.dbl().dbl().dbl().dbl();
@@ -293,9 +306,9 @@ pub const Edwards25519 = struct {
         var pcs: [count][9]Edwards25519 = undefined;
 
         var bpc: [9]Edwards25519 = undefined;
-        mem.copy(Edwards25519, bpc[0..], basePointPc[0..bpc.len]);
+        @memcpy(&bpc, basePointPc[0..bpc.len]);
 
-        for (ps) |p, i| {
+        for (ps, 0..) |p, i| {
             if (p.is_base) {
                 pcs[i] = bpc;
             } else {
@@ -304,18 +317,18 @@ pub const Edwards25519 = struct {
             }
         }
         var es: [count][2 * 32]i8 = undefined;
-        for (ss) |s, i| {
+        for (ss, 0..) |s, i| {
             es[i] = slide(s);
         }
         var q = Edwards25519.identityElement;
         var pos: usize = 2 * 32 - 1;
         while (true) : (pos -= 1) {
-            for (es) |e, i| {
+            for (es, 0..) |e, i| {
                 const slot = e[pos];
                 if (slot > 0) {
-                    q = q.add(pcs[i][@intCast(usize, slot)]);
+                    q = q.add(pcs[i][@as(usize, @intCast(slot))]);
                 } else if (slot < 0) {
-                    q = q.sub(pcs[i][@intCast(usize, -slot)]);
+                    q = q.sub(pcs[i][@as(usize, @intCast(-slot))]);
                 }
             }
             if (pos == 0) break;
@@ -356,7 +369,7 @@ pub const Edwards25519 = struct {
 
         // yed = (x-1)/(x+1) or 1 if the denominator is 0
         var yed = x_plus_one_y_inv.mul(y).mul(x_minus_one);
-        yed.cMov(Fe.one, @boolToInt(x_plus_one_y_inv.isZero()));
+        yed.cMov(Fe.one, @intFromBool(x_plus_one_y_inv.isZero()));
 
         return Edwards25519{
             .x = xed,
@@ -377,9 +390,9 @@ pub const Edwards25519 = struct {
         const not_square = !gx1.isSquare();
 
         // gx1 not a square => x = -x1-A
-        x.cMov(x.neg(), @boolToInt(not_square));
+        x.cMov(x.neg(), @intFromBool(not_square));
         x2 = Fe.zero;
-        x2.cMov(Fe.edwards25519a, @boolToInt(not_square));
+        x2.cMov(Fe.edwards25519a, @intFromBool(not_square));
         x = x.sub(x2);
 
         // We have y = sqrt(gx1) or sqrt(gx2) with gx2 = gx1*(A+x1)/(-x1)
@@ -395,7 +408,7 @@ pub const Edwards25519 = struct {
 
         const y_sign = !elr.not_square;
         const y_neg = elr.y.neg();
-        elr.y.cMov(y_neg, @boolToInt(elr.y.isNegative()) ^ @boolToInt(y_sign));
+        elr.y.cMov(y_neg, @intFromBool(elr.y.isNegative()) ^ @intFromBool(y_sign));
         return montToEd(elr.x, elr.y).clearCofactor();
     }
 
@@ -414,7 +427,7 @@ pub const Edwards25519 = struct {
         }
         const empty_block = [_]u8{0} ** H.block_length;
         var t = [3]u8{ 0, n * h_l, 0 };
-        var xctx_len_u8 = [1]u8{@intCast(u8, xctx.len)};
+        var xctx_len_u8 = [1]u8{@as(u8, @intCast(xctx.len))};
         var st = H.init(.{});
         st.update(empty_block[0..]);
         st.update(s);
@@ -426,7 +439,7 @@ pub const Edwards25519 = struct {
         var u: [n * H.digest_length]u8 = undefined;
         var i: usize = 0;
         while (i < n * H.digest_length) : (i += H.digest_length) {
-            mem.copy(u8, u[i..][0..H.digest_length], u_0[0..]);
+            u[i..][0..H.digest_length].* = u_0;
             var j: usize = 0;
             while (i > 0 and j < H.digest_length) : (j += 1) {
                 u[i + j] ^= u[i + j - H.digest_length];
@@ -442,8 +455,8 @@ pub const Edwards25519 = struct {
         var px: [n]Edwards25519 = undefined;
         i = 0;
         while (i < n) : (i += 1) {
-            mem.set(u8, u_0[0 .. H.digest_length - h_l], 0);
-            mem.copy(u8, u_0[H.digest_length - h_l ..][0..h_l], u[i * h_l ..][0..h_l]);
+            @memset(u_0[0 .. H.digest_length - h_l], 0);
+            u_0[H.digest_length - h_l ..][0..h_l].* = u[i * h_l ..][0..h_l].*;
             px[i] = fromHash(u_0);
         }
         return px;
@@ -473,7 +486,7 @@ pub const Edwards25519 = struct {
         const elr = elligator2(Fe.fromBytes(s));
         var p = montToEd(elr.x, elr.y);
         const p_neg = p.neg();
-        p.cMov(p_neg, @boolToInt(p.x.isNegative()) ^ x_sign);
+        p.cMov(p_neg, @intFromBool(p.x.isNegative()) ^ x_sign);
         return p.clearCofactor();
     }
 };
@@ -516,7 +529,7 @@ test "edwards25519 packing/unpacking" {
     }
 }
 
-test "edwards25519 point addition/substraction" {
+test "edwards25519 point addition/subtraction" {
     var s1: [32]u8 = undefined;
     var s2: [32]u8 = undefined;
     crypto.random.bytes(&s1);

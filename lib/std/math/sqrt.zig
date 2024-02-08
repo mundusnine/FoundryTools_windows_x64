@@ -11,7 +11,7 @@ const maxInt = std.math.maxInt;
 ///  - sqrt(+-0)   = +-0
 ///  - sqrt(x)     = nan if x < 0
 ///  - sqrt(nan)   = nan
-/// TODO Decide if all this logic should be implemented directly in the @sqrt bultin function.
+/// TODO Decide if all this logic should be implemented directly in the @sqrt builtin function.
 pub fn sqrt(x: anytype) Sqrt(@TypeOf(x)) {
     const T = @TypeOf(x);
     switch (@typeInfo(T)) {
@@ -37,9 +37,12 @@ fn sqrt_int(comptime T: type, value: T) Sqrt(T) {
     if (@typeInfo(T).Int.bits <= 2) {
         return if (value == 0) 0 else 1; // shortcut for small number of bits to simplify general case
     } else {
+        const bits = @typeInfo(T).Int.bits;
+        const max = math.maxInt(T);
+        const minustwo = (@as(T, 2) ^ max) + 1; // unsigned int cannot represent -2
         var op = value;
         var res: T = 0;
-        var one: T = 1 << ((@typeInfo(T).Int.bits - 1) & -2); // highest power of four that fits into T
+        var one: T = 1 << ((bits - 1) & minustwo); // highest power of four that fits into T
 
         // "one" starts at the highest power of four <= than the argument.
         while (one > op) {
@@ -54,7 +57,7 @@ fn sqrt_int(comptime T: type, value: T) Sqrt(T) {
             one >>= 2;
         }
 
-        return @intCast(Sqrt(T), res);
+        return @as(Sqrt(T), @intCast(res));
     }
 }
 

@@ -7,9 +7,12 @@ const mem = std.mem;
 const meta = std.meta;
 
 const fields_delimiter = "$";
+const fields_delimiter_scalar = '$';
 const version_param_name = "v";
 const params_delimiter = ",";
+const params_delimiter_scalar = ',';
 const kv_delimiter = "=";
+const kv_delimiter_scalar = '=';
 
 pub const Error = std.crypto.errors.EncodingError || error{NoSpaceLeft};
 
@@ -35,7 +38,7 @@ pub fn BinValue(comptime max_len: usize) type {
         pub fn fromSlice(slice: []const u8) Error!Self {
             if (slice.len > capacity) return Error.NoSpaceLeft;
             var bin_value: Self = undefined;
-            mem.copy(u8, &bin_value.buf, slice);
+            @memcpy(bin_value.buf[0..slice.len], slice);
             bin_value.len = slice.len;
             return bin_value;
         }
@@ -73,7 +76,7 @@ pub fn BinValue(comptime max_len: usize) type {
 /// Other fields will also be deserialized from the function parameters section.
 pub fn deserialize(comptime HashResult: type, str: []const u8) Error!HashResult {
     var out = mem.zeroes(HashResult);
-    var it = mem.split(u8, str, fields_delimiter);
+    var it = mem.splitScalar(u8, str, fields_delimiter_scalar);
     var set_fields: usize = 0;
 
     while (true) {
@@ -104,15 +107,15 @@ pub fn deserialize(comptime HashResult: type, str: []const u8) Error!HashResult 
 
         // Read optional parameters
         var has_params = false;
-        var it_params = mem.split(u8, field, params_delimiter);
+        var it_params = mem.splitScalar(u8, field, params_delimiter_scalar);
         while (it_params.next()) |params| {
             const param = kvSplit(params) catch break;
             var found = false;
             inline for (comptime meta.fields(HashResult)) |p| {
                 if (mem.eql(u8, p.name, param.key)) {
-                    switch (@typeInfo(p.field_type)) {
+                    switch (@typeInfo(p.type)) {
                         .Int => @field(out, p.name) = fmt.parseUnsigned(
-                            p.field_type,
+                            p.type,
                             param.value,
                             10,
                         ) catch return Error.InvalidEncoding,
@@ -161,7 +164,7 @@ pub fn deserialize(comptime HashResult: type, str: []const u8) Error!HashResult 
     // with default values
     var expected_fields: usize = 0;
     inline for (comptime meta.fields(HashResult)) |p| {
-        if (@typeInfo(p.field_type) != .Optional and p.default_value == null) {
+        if (@typeInfo(p.type) != .Optional and p.default_value == null) {
             expected_fields += 1;
         }
     }
@@ -190,7 +193,7 @@ pub fn serialize(params: anytype, str: []u8) Error![]const u8 {
 pub fn calcSize(params: anytype) usize {
     var buf = io.countingWriter(io.null_writer);
     serializeTo(params, buf.writer()) catch unreachable;
-    return @intCast(usize, buf.bytes_written);
+    return @as(usize, @intCast(buf.bytes_written));
 }
 
 fn serializeTo(params: anytype, out: anytype) !void {
@@ -223,7 +226,7 @@ fn serializeTo(params: anytype, out: anytype) !void {
         {
             const value = @field(params, p.name);
             try out.writeAll(if (has_params) params_delimiter else fields_delimiter);
-            if (@typeInfo(p.field_type) == .Struct) {
+            if (@typeInfo(p.type) == .Struct) {
                 var buf: [@TypeOf(value).max_encoded_length]u8 = undefined;
                 try out.print("{s}{s}{s}", .{ p.name, kv_delimiter, try value.toB64(&buf) });
             } else {
@@ -252,7 +255,7 @@ fn serializeTo(params: anytype, out: anytype) !void {
 
 // Split a `key=value` string into `key` and `value`
 fn kvSplit(str: []const u8) !struct { key: []const u8, value: []const u8 } {
-    var it = mem.split(u8, str, kv_delimiter);
+    var it = mem.splitScalar(u8, str, kv_delimiter_scalar);
     const key = it.first();
     const value = it.next() orelse return Error.InvalidEncoding;
     const ret = .{ .key = key, .value = value };

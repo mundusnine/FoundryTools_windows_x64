@@ -30,7 +30,7 @@ pub fn calcLimbLen(scalar: anytype) usize {
     }
 
     const w_value = std.math.absCast(scalar);
-    return @divFloor(@intCast(Limb, math.log2(w_value)), limb_bits) + 1;
+    return @as(usize, @intCast(@divFloor(@as(Limb, @intCast(math.log2(w_value))), limb_bits) + 1));
 }
 
 pub fn calcToStringLimbsBufferLen(a_len: usize, base: u8) usize {
@@ -44,12 +44,12 @@ pub fn calcDivLimbsBufferLen(a_len: usize, b_len: usize) usize {
 }
 
 pub fn calcMulLimbsBufferLen(a_len: usize, b_len: usize, aliases: usize) usize {
-    return aliases * math.max(a_len, b_len);
+    return aliases * @max(a_len, b_len);
 }
 
 pub fn calcMulWrapLimbsBufferLen(bit_count: usize, a_len: usize, b_len: usize, aliases: usize) usize {
     const req_limbs = calcTwosCompLimbCount(bit_count);
-    return aliases * math.min(req_limbs, math.max(a_len, b_len));
+    return aliases * @min(req_limbs, @max(a_len, b_len));
 }
 
 pub fn calcSetStringLimbsBufferLen(base: u8, string_len: usize) usize {
@@ -66,6 +66,13 @@ pub fn calcPowLimbsBufferLen(a_bit_count: usize, y: usize) usize {
     return 2 + (a_bit_count * y + (limb_bits - 1)) / limb_bits;
 }
 
+pub fn calcSqrtLimbsBufferLen(a_bit_count: usize) usize {
+    const a_limb_count = (a_bit_count - 1) / limb_bits + 1;
+    const shift = (a_bit_count + 1) / 2;
+    const u_s_rem_limb_count = 1 + ((shift - 1) / limb_bits + 1);
+    return a_limb_count + 3 * u_s_rem_limb_count + calcDivLimbsBufferLen(a_limb_count, u_s_rem_limb_count);
+}
+
 // Compute the number of limbs required to store a 2s-complement number of `bit_count` bits.
 pub fn calcTwosCompLimbCount(bit_count: usize) usize {
     return std.math.divCeil(usize, bit_count, @bitSizeOf(Limb)) catch unreachable;
@@ -74,42 +81,40 @@ pub fn calcTwosCompLimbCount(bit_count: usize) usize {
 /// a + b * c + *carry, sets carry to the overflow bits
 pub fn addMulLimbWithCarry(a: Limb, b: Limb, c: Limb, carry: *Limb) Limb {
     @setRuntimeSafety(debug_safety);
-    var r1: Limb = undefined;
 
-    // r1 = a + *carry
-    const c1: Limb = @boolToInt(@addWithOverflow(Limb, a, carry.*, &r1));
+    // ov1[0] = a + *carry
+    const ov1 = @addWithOverflow(a, carry.*);
 
     // r2 = b * c
     const bc = @as(DoubleLimb, math.mulWide(Limb, b, c));
-    const r2 = @truncate(Limb, bc);
-    const c2 = @truncate(Limb, bc >> limb_bits);
+    const r2 = @as(Limb, @truncate(bc));
+    const c2 = @as(Limb, @truncate(bc >> limb_bits));
 
-    // r1 = r1 + r2
-    const c3: Limb = @boolToInt(@addWithOverflow(Limb, r1, r2, &r1));
+    // ov2[0] = ov1[0] + r2
+    const ov2 = @addWithOverflow(ov1[0], r2);
 
     // This never overflows, c1, c3 are either 0 or 1 and if both are 1 then
     // c2 is at least <= maxInt(Limb) - 2.
-    carry.* = c1 + c2 + c3;
+    carry.* = ov1[1] + c2 + ov2[1];
 
-    return r1;
+    return ov2[0];
 }
 
 /// a - b * c - *carry, sets carry to the overflow bits
 fn subMulLimbWithBorrow(a: Limb, b: Limb, c: Limb, carry: *Limb) Limb {
-    // r1 = a - *carry
-    var r1: Limb = undefined;
-    const c1: Limb = @boolToInt(@subWithOverflow(Limb, a, carry.*, &r1));
+    // ov1[0] = a - *carry
+    const ov1 = @subWithOverflow(a, carry.*);
 
     // r2 = b * c
     const bc = @as(DoubleLimb, std.math.mulWide(Limb, b, c));
-    const r2 = @truncate(Limb, bc);
-    const c2 = @truncate(Limb, bc >> limb_bits);
+    const r2 = @as(Limb, @truncate(bc));
+    const c2 = @as(Limb, @truncate(bc >> limb_bits));
 
-    // r1 = r1 - r2
-    const c3: Limb = @boolToInt(@subWithOverflow(Limb, r1, r2, &r1));
-    carry.* = c1 + c2 + c3;
+    // ov2[0] = ov1[0] - r2
+    const ov2 = @subWithOverflow(ov1[0], r2);
+    carry.* = ov1[1] + c2 + ov2[1];
 
-    return r1;
+    return ov2[0];
 }
 
 /// Used to indicate either limit of a 2s-complement integer.
@@ -142,9 +147,12 @@ pub const Mutable = struct {
         };
     }
 
+    // TODO: remove after release of 0.11
+    pub const eqZero = @compileError("use eqlZero");
+
     /// Returns true if `a == 0`.
-    pub fn eqZero(self: Mutable) bool {
-        return self.toConst().eqZero();
+    pub fn eqlZero(self: Mutable) bool {
+        return self.toConst().eqlZero();
     }
 
     /// Asserts that the allocator owns the limbs memory. If this is not the case,
@@ -178,7 +186,7 @@ pub const Mutable = struct {
     /// Asserts the value fits in the limbs buffer.
     pub fn copy(self: *Mutable, other: Const) void {
         if (self.limbs.ptr != other.limbs.ptr) {
-            mem.copy(Limb, self.limbs[0..], other.limbs[0..other.limbs.len]);
+            @memcpy(self.limbs[0..other.limbs.len], other.limbs[0..other.limbs.len]);
         }
         self.positive = other.positive;
         self.len = other.limbs.len;
@@ -201,7 +209,7 @@ pub const Mutable = struct {
     /// can be modified separately from the original.
     /// Asserts that limbs is big enough to store the value.
     pub fn clone(other: Mutable, limbs: []Limb) Mutable {
-        mem.copy(Limb, limbs, other.limbs[0..other.len]);
+        @memcpy(limbs[0..other.len], other.limbs[0..other.len]);
         return .{
             .limbs = limbs,
             .len = other.len,
@@ -239,11 +247,8 @@ pub const Mutable = struct {
                 } else {
                     var i: usize = 0;
                     while (true) : (i += 1) {
-                        self.limbs[i] = @truncate(Limb, w_value);
-
-                        // TODO: shift == 64 at compile-time fails. Fails on u128 limbs.
-                        w_value >>= limb_bits / 2;
-                        w_value >>= limb_bits / 2;
+                        self.limbs[i] = @as(Limb, @truncate(w_value));
+                        w_value >>= limb_bits;
 
                         if (w_value == 0) break;
                     }
@@ -260,9 +265,7 @@ pub const Mutable = struct {
                     comptime var i = 0;
                     inline while (true) : (i += 1) {
                         self.limbs[i] = w_value & mask;
-
-                        w_value >>= limb_bits / 2;
-                        w_value >>= limb_bits / 2;
+                        w_value >>= limb_bits;
 
                         if (w_value == 0) break;
                     }
@@ -340,7 +343,7 @@ pub const Mutable = struct {
         }
 
         const req_limbs = calcTwosCompLimbCount(bit_count);
-        const bit = @truncate(Log2Limb, bit_count - 1);
+        const bit = @as(Log2Limb, @truncate(bit_count - 1));
         const signmask = @as(Limb, 1) << bit; // 0b0..010..0 where 1 is the sign bit.
         const mask = (signmask << 1) -% 1; // 0b0..011..1 where the leftmost 1 is the sign bit.
 
@@ -351,7 +354,7 @@ pub const Mutable = struct {
                 .min => {
                     // Negative bound, signed = -0x80.
                     r.len = req_limbs;
-                    mem.set(Limb, r.limbs[0 .. r.len - 1], 0);
+                    @memset(r.limbs[0 .. r.len - 1], 0);
                     r.limbs[r.len - 1] = signmask;
                     r.positive = false;
                 },
@@ -365,12 +368,12 @@ pub const Mutable = struct {
                         r.set(0);
                     } else {
                         const new_req_limbs = calcTwosCompLimbCount(bit_count - 1);
-                        const msb = @truncate(Log2Limb, bit_count - 2);
+                        const msb = @as(Log2Limb, @truncate(bit_count - 2));
                         const new_signmask = @as(Limb, 1) << msb; // 0b0..010..0 where 1 is the sign bit.
                         const new_mask = (new_signmask << 1) -% 1; // 0b0..001..1 where the rightmost 0 is the sign bit.
 
                         r.len = new_req_limbs;
-                        std.mem.set(Limb, r.limbs[0 .. r.len - 1], maxInt(Limb));
+                        @memset(r.limbs[0 .. r.len - 1], maxInt(Limb));
                         r.limbs[r.len - 1] = new_mask;
                     }
                 },
@@ -383,7 +386,7 @@ pub const Mutable = struct {
                 .max => {
                     // Max bound, unsigned = 0xFF
                     r.len = req_limbs;
-                    std.mem.set(Limb, r.limbs[0 .. r.len - 1], maxInt(Limb));
+                    @memset(r.limbs[0 .. r.len - 1], maxInt(Limb));
                     r.limbs[r.len - 1] = mask;
                 },
             },
@@ -396,7 +399,7 @@ pub const Mutable = struct {
     /// scalar is a primitive integer type.
     ///
     /// Asserts the result fits in `r`. An upper bound on the number of limbs needed by
-    /// r is `math.max(a.limbs.len, calcLimbLen(scalar)) + 1`.
+    /// r is `@max(a.limbs.len, calcLimbLen(scalar)) + 1`.
     pub fn addScalar(r: *Mutable, a: Const, scalar: anytype) void {
         // Normally we could just determine the number of limbs needed with calcLimbLen,
         // but that is not comptime-known when scalar is not a comptime_int.  Instead, we
@@ -414,16 +417,16 @@ pub const Mutable = struct {
         return add(r, a, operand);
     }
 
-    /// Base implementation for addition. Adds `max(a.limbs.len, b.limbs.len)` elements from a and b,
-    /// and returns whether any overflow occured.
+    /// Base implementation for addition. Adds `@max(a.limbs.len, b.limbs.len)` elements from a and b,
+    /// and returns whether any overflow occurred.
     /// r, a and b may be aliases.
     ///
-    /// Asserts r has enough elements to hold the result. The upper bound is `max(a.limbs.len, b.limbs.len)`.
+    /// Asserts r has enough elements to hold the result. The upper bound is `@max(a.limbs.len, b.limbs.len)`.
     fn addCarry(r: *Mutable, a: Const, b: Const) bool {
-        if (a.eqZero()) {
+        if (a.eqlZero()) {
             r.copy(b);
             return false;
-        } else if (b.eqZero()) {
+        } else if (b.eqlZero()) {
             r.copy(a);
             return false;
         } else if (a.positive != b.positive) {
@@ -452,12 +455,12 @@ pub const Mutable = struct {
     /// r, a and b may be aliases.
     ///
     /// Asserts the result fits in `r`. An upper bound on the number of limbs needed by
-    /// r is `math.max(a.limbs.len, b.limbs.len) + 1`.
+    /// r is `@max(a.limbs.len, b.limbs.len) + 1`.
     pub fn add(r: *Mutable, a: Const, b: Const) void {
         if (r.addCarry(a, b)) {
             // Fix up the result. Note that addCarry normalizes by a.limbs.len or b.limbs.len,
             // so we need to set the length here.
-            const msl = math.max(a.limbs.len, b.limbs.len);
+            const msl = @max(a.limbs.len, b.limbs.len);
             // `[add|sub]Carry` normalizes by `msl`, so we need to fix up the result manually here.
             // Note, the fact that it normalized means that the intermediary limbs are zero here.
             r.len = msl + 1;
@@ -474,15 +477,15 @@ pub const Mutable = struct {
         const req_limbs = calcTwosCompLimbCount(bit_count);
 
         // Slice of the upper bits if they exist, these will be ignored and allows us to use addCarry to determine
-        // if an overflow occured.
+        // if an overflow occurred.
         const x = Const{
             .positive = a.positive,
-            .limbs = a.limbs[0..math.min(req_limbs, a.limbs.len)],
+            .limbs = a.limbs[0..@min(req_limbs, a.limbs.len)],
         };
 
         const y = Const{
             .positive = b.positive,
-            .limbs = b.limbs[0..math.min(req_limbs, b.limbs.len)],
+            .limbs = b.limbs[0..@min(req_limbs, b.limbs.len)],
         };
 
         var carry_truncated = false;
@@ -492,10 +495,11 @@ pub const Mutable = struct {
             //   truncate anyway.
             // - a and b had less elements than req_limbs, and those were overflowed. This case needs to be handled.
             //   Note: after this we still might need to wrap.
-            const msl = math.max(a.limbs.len, b.limbs.len);
+            const msl = @max(a.limbs.len, b.limbs.len);
             if (msl < req_limbs) {
                 r.limbs[msl] = 1;
                 r.len = req_limbs;
+                @memset(r.limbs[msl + 1 .. req_limbs], 0);
             } else {
                 carry_truncated = true;
             }
@@ -518,15 +522,15 @@ pub const Mutable = struct {
         const req_limbs = calcTwosCompLimbCount(bit_count);
 
         // Slice of the upper bits if they exist, these will be ignored and allows us to use addCarry to determine
-        // if an overflow occured.
+        // if an overflow occurred.
         const x = Const{
             .positive = a.positive,
-            .limbs = a.limbs[0..math.min(req_limbs, a.limbs.len)],
+            .limbs = a.limbs[0..@min(req_limbs, a.limbs.len)],
         };
 
         const y = Const{
             .positive = b.positive,
-            .limbs = b.limbs[0..math.min(req_limbs, b.limbs.len)],
+            .limbs = b.limbs[0..@min(req_limbs, b.limbs.len)],
         };
 
         if (r.addCarry(x, y)) {
@@ -534,7 +538,7 @@ pub const Mutable = struct {
             // - We overflowed req_limbs, in which case we need to saturate.
             // - a and b had less elements than req_limbs, and those were overflowed.
             //   Note: In this case, might _also_ need to saturate.
-            const msl = math.max(a.limbs.len, b.limbs.len);
+            const msl = @max(a.limbs.len, b.limbs.len);
             if (msl < req_limbs) {
                 r.limbs[msl] = 1;
                 r.len = req_limbs;
@@ -549,17 +553,17 @@ pub const Mutable = struct {
         r.saturate(r.toConst(), signedness, bit_count);
     }
 
-    /// Base implementation for subtraction. Subtracts `max(a.limbs.len, b.limbs.len)` elements from a and b,
-    /// and returns whether any overflow occured.
+    /// Base implementation for subtraction. Subtracts `@max(a.limbs.len, b.limbs.len)` elements from a and b,
+    /// and returns whether any overflow occurred.
     /// r, a and b may be aliases.
     ///
-    /// Asserts r has enough elements to hold the result. The upper bound is `max(a.limbs.len, b.limbs.len)`.
+    /// Asserts r has enough elements to hold the result. The upper bound is `@max(a.limbs.len, b.limbs.len)`.
     fn subCarry(r: *Mutable, a: Const, b: Const) bool {
-        if (a.eqZero()) {
+        if (a.eqlZero()) {
             r.copy(b);
             r.positive = !b.positive;
             return false;
-        } else if (b.eqZero()) {
+        } else if (b.eqlZero()) {
             r.copy(a);
             return false;
         } else if (a.positive != b.positive) {
@@ -606,12 +610,12 @@ pub const Mutable = struct {
     /// r, a and b may be aliases.
     ///
     /// Asserts the result fits in `r`. An upper bound on the number of limbs needed by
-    /// r is `math.max(a.limbs.len, b.limbs.len) + 1`. The +1 is not needed if both operands are positive.
+    /// r is `@max(a.limbs.len, b.limbs.len) + 1`. The +1 is not needed if both operands are positive.
     pub fn sub(r: *Mutable, a: Const, b: Const) void {
         r.add(a, b.negate());
     }
 
-    /// r = a - b with 2s-complement wrapping semantics. Returns whether any overflow occured.
+    /// r = a - b with 2s-complement wrapping semantics. Returns whether any overflow occurred.
     ///
     /// r, a and b may be aliases
     /// Asserts the result fits in `r`. An upper bound on the number of limbs needed by
@@ -643,14 +647,14 @@ pub const Mutable = struct {
 
         const a_copy = if (rma.limbs.ptr == a.limbs.ptr) blk: {
             const start = buf_index;
-            mem.copy(Limb, limbs_buffer[buf_index..], a.limbs);
+            @memcpy(limbs_buffer[buf_index..][0..a.limbs.len], a.limbs);
             buf_index += a.limbs.len;
             break :blk a.toMutable(limbs_buffer[start..buf_index]).toConst();
         } else a;
 
         const b_copy = if (rma.limbs.ptr == b.limbs.ptr) blk: {
             const start = buf_index;
-            mem.copy(Limb, limbs_buffer[buf_index..], b.limbs);
+            @memcpy(limbs_buffer[buf_index..][0..b.limbs.len], b.limbs);
             buf_index += b.limbs.len;
             break :blk b.toMutable(limbs_buffer[start..buf_index]).toConst();
         } else b;
@@ -673,14 +677,16 @@ pub const Mutable = struct {
         assert(rma.limbs.ptr != b.limbs.ptr); // illegal aliasing
 
         if (a.limbs.len == 1 and b.limbs.len == 1) {
-            if (!@mulWithOverflow(Limb, a.limbs[0], b.limbs[0], &rma.limbs[0])) {
+            const ov = @mulWithOverflow(a.limbs[0], b.limbs[0]);
+            rma.limbs[0] = ov[0];
+            if (ov[1] == 0) {
                 rma.len = 1;
                 rma.positive = (a.positive == b.positive);
                 return;
             }
         }
 
-        mem.set(Limb, rma.limbs[0 .. a.limbs.len + b.limbs.len], 0);
+        @memset(rma.limbs[0 .. a.limbs.len + b.limbs.len], 0);
 
         llmulacc(.add, allocator, rma.limbs, a.limbs, b.limbs);
 
@@ -711,16 +717,16 @@ pub const Mutable = struct {
 
         const a_copy = if (rma.limbs.ptr == a.limbs.ptr) blk: {
             const start = buf_index;
-            const a_len = math.min(req_limbs, a.limbs.len);
-            mem.copy(Limb, limbs_buffer[buf_index..], a.limbs[0..a_len]);
+            const a_len = @min(req_limbs, a.limbs.len);
+            @memcpy(limbs_buffer[buf_index..][0..a_len], a.limbs[0..a_len]);
             buf_index += a_len;
             break :blk a.toMutable(limbs_buffer[start..buf_index]).toConst();
         } else a;
 
         const b_copy = if (rma.limbs.ptr == b.limbs.ptr) blk: {
             const start = buf_index;
-            const b_len = math.min(req_limbs, b.limbs.len);
-            mem.copy(Limb, limbs_buffer[buf_index..], b.limbs[0..b_len]);
+            const b_len = @min(req_limbs, b.limbs.len);
+            @memcpy(limbs_buffer[buf_index..][0..b_len], b.limbs[0..b_len]);
             buf_index += b_len;
             break :blk a.toMutable(limbs_buffer[start..buf_index]).toConst();
         } else b;
@@ -752,13 +758,13 @@ pub const Mutable = struct {
         const req_limbs = calcTwosCompLimbCount(bit_count);
 
         // We can ignore the upper bits here, those results will be discarded anyway.
-        const a_limbs = a.limbs[0..math.min(req_limbs, a.limbs.len)];
-        const b_limbs = b.limbs[0..math.min(req_limbs, b.limbs.len)];
+        const a_limbs = a.limbs[0..@min(req_limbs, a.limbs.len)];
+        const b_limbs = b.limbs[0..@min(req_limbs, b.limbs.len)];
 
-        mem.set(Limb, rma.limbs[0..req_limbs], 0);
+        @memset(rma.limbs[0..req_limbs], 0);
 
         llmulacc(.add, allocator, rma.limbs, a_limbs, b_limbs);
-        rma.normalize(math.min(req_limbs, a.limbs.len + b.limbs.len));
+        rma.normalize(@min(req_limbs, a.limbs.len + b.limbs.len));
         rma.positive = (a.positive == b.positive);
         rma.truncate(rma.toConst(), signedness, bit_count);
     }
@@ -923,7 +929,7 @@ pub const Mutable = struct {
         _ = opt_allocator;
         assert(rma.limbs.ptr != a.limbs.ptr); // illegal aliasing
 
-        mem.set(Limb, rma.limbs, 0);
+        @memset(rma.limbs, 0);
 
         llsquareBasecase(rma.limbs, a.limbs);
 
@@ -939,9 +945,6 @@ pub const Mutable = struct {
     /// Asserts there is enough memory to store q and r.
     /// The upper bound for r limb count is `b.limbs.len`.
     /// The upper bound for q limb count is given by `a.limbs`.
-    ///
-    /// If `allocator` is provided, it will be used for temporary storage to improve
-    /// multiplication performance. `error.OutOfMemory` is handled with a fallback algorithm.
     ///
     /// `limbs_buffer` is used for temporary storage. The amount required is given by `calcDivLimbsBufferLen`.
     pub fn divFloor(
@@ -1002,7 +1005,7 @@ pub const Mutable = struct {
             // Else:
             //   @rem(a - 1, b) = @rem(a + b - 1, b) = @rem(b - 1, b) = b - 1
             //   => @mod(a, -b) = b - 1 - b + 1 = 0
-            if (!r.eqZero()) {
+            if (!r.eqlZero()) {
                 q.addScalar(q.toConst(), -1);
                 r.positive = true;
                 r.sub(r.toConst(), y.toConst().abs());
@@ -1033,7 +1036,7 @@ pub const Mutable = struct {
             // Else :
             //   @rem(a - 1, b) = b - 1
             //   => @mod(-a, b) = -(b - 1) + b - 1 = 0
-            if (!r.eqZero()) {
+            if (!r.eqlZero()) {
                 q.addScalar(q.toConst(), -1);
                 r.positive = false;
                 r.add(r.toConst(), y.toConst().abs());
@@ -1069,9 +1072,6 @@ pub const Mutable = struct {
     /// Asserts there is enough memory to store q and r.
     /// The upper bound for r limb count is `b.limbs.len`.
     /// The upper bound for q limb count is given by `a.limbs.len`.
-    ///
-    /// If `allocator` is provided, it will be used for temporary storage to improve
-    /// multiplication performance. `error.OutOfMemory` is handled with a fallback algorithm.
     ///
     /// `limbs_buffer` is used for temporary storage. The amount required is given by `calcDivLimbsBufferLen`.
     pub fn divTrunc(
@@ -1122,7 +1122,7 @@ pub const Mutable = struct {
         // 0-bit integers.
         if (bit_count <= shift) {
             // In this case, there is only no overflow if `a` is zero.
-            if (a.eqZero()) {
+            if (a.eqlZero()) {
                 r.set(0);
             } else {
                 r.setTwosCompIntLimit(if (a.positive) .max else .min, signedness, bit_count);
@@ -1130,7 +1130,7 @@ pub const Mutable = struct {
             return;
         }
 
-        const checkbit = bit_count - shift - @boolToInt(signedness == .signed);
+        const checkbit = bit_count - shift - @intFromBool(signedness == .signed);
         // If `checkbit` and more significant bits are zero, no overflow will take place.
 
         if (checkbit >= a.limbs.len * limb_bits) {
@@ -1151,12 +1151,12 @@ pub const Mutable = struct {
             return;
         }
 
-        // Generate a mask with the bits to check in the most signficant limb. We'll need to check
+        // Generate a mask with the bits to check in the most significant limb. We'll need to check
         // all bits with equal or more significance than checkbit.
         // const msb = @truncate(Log2Limb, checkbit);
         // const checkmask = (@as(Limb, 1) << msb) -% 1;
 
-        if (a.limbs[a.limbs.len - 1] >> @truncate(Log2Limb, checkbit) != 0) {
+        if (a.limbs[a.limbs.len - 1] >> @as(Log2Limb, @truncate(checkbit)) != 0) {
             // Need to saturate.
             r.setTwosCompIntLimit(if (a.positive) .max else .min, signedness, bit_count);
             return;
@@ -1214,13 +1214,13 @@ pub const Mutable = struct {
     ///
     /// a and b are zero-extended to the longer of a or b.
     ///
-    /// Asserts that r has enough limbs to store the result. Upper bound is `math.max(a.limbs.len, b.limbs.len)`.
+    /// Asserts that r has enough limbs to store the result. Upper bound is `@max(a.limbs.len, b.limbs.len)`.
     pub fn bitOr(r: *Mutable, a: Const, b: Const) void {
         // Trivial cases, llsignedor does not support zero.
-        if (a.eqZero()) {
+        if (a.eqlZero()) {
             r.copy(b);
             return;
-        } else if (b.eqZero()) {
+        } else if (b.eqlZero()) {
             r.copy(a);
             return;
         }
@@ -1238,14 +1238,14 @@ pub const Mutable = struct {
     /// r may alias with a or b.
     ///
     /// Asserts that r has enough limbs to store the result.
-    /// If a or b is positive, the upper bound is `math.min(a.limbs.len, b.limbs.len)`.
-    /// If a and b are negative, the upper bound is `math.max(a.limbs.len, b.limbs.len) + 1`.
+    /// If a or b is positive, the upper bound is `@min(a.limbs.len, b.limbs.len)`.
+    /// If a and b are negative, the upper bound is `@max(a.limbs.len, b.limbs.len) + 1`.
     pub fn bitAnd(r: *Mutable, a: Const, b: Const) void {
         // Trivial cases, llsignedand does not support zero.
-        if (a.eqZero()) {
+        if (a.eqlZero()) {
             r.copy(a);
             return;
-        } else if (b.eqZero()) {
+        } else if (b.eqlZero()) {
             r.copy(b);
             return;
         }
@@ -1263,31 +1263,31 @@ pub const Mutable = struct {
     /// r may alias with a or b.
     ///
     /// Asserts that r has enough limbs to store the result. If a and b share the same signedness, the
-    /// upper bound is `math.max(a.limbs.len, b.limbs.len)`. Otherwise, if either a or b is negative
-    /// but not both, the upper bound is `math.max(a.limbs.len, b.limbs.len) + 1`.
+    /// upper bound is `@max(a.limbs.len, b.limbs.len)`. Otherwise, if either a or b is negative
+    /// but not both, the upper bound is `@max(a.limbs.len, b.limbs.len) + 1`.
     pub fn bitXor(r: *Mutable, a: Const, b: Const) void {
         // Trivial cases, because llsignedxor does not support negative zero.
-        if (a.eqZero()) {
+        if (a.eqlZero()) {
             r.copy(b);
             return;
-        } else if (b.eqZero()) {
+        } else if (b.eqlZero()) {
             r.copy(a);
             return;
         }
 
         if (a.limbs.len > b.limbs.len) {
             r.positive = llsignedxor(r.limbs, a.limbs, a.positive, b.limbs, b.positive);
-            r.normalize(a.limbs.len + @boolToInt(a.positive != b.positive));
+            r.normalize(a.limbs.len + @intFromBool(a.positive != b.positive));
         } else {
             r.positive = llsignedxor(r.limbs, b.limbs, b.positive, a.limbs, a.positive);
-            r.normalize(b.limbs.len + @boolToInt(a.positive != b.positive));
+            r.normalize(b.limbs.len + @intFromBool(a.positive != b.positive));
         }
     }
 
     /// rma may alias x or y.
     /// x and y may alias each other.
     /// Asserts that `rma` has enough limbs to store the result. Upper bound is
-    /// `math.min(x.limbs.len, y.limbs.len)`.
+    /// `@min(x.limbs.len, y.limbs.len)`.
     ///
     /// `limbs_buffer` is used for temporary storage during the operation. When this function returns,
     /// it will have the same length as it had when the function was called.
@@ -1333,7 +1333,7 @@ pub const Mutable = struct {
             else => {},
         }
 
-        if (a.eqZero()) {
+        if (a.eqlZero()) {
             // 0^b = 0
             return r.set(0);
         } else if (a.limbs.len == 1 and a.limbs[0] == 1) {
@@ -1352,6 +1352,64 @@ pub const Mutable = struct {
 
         r.normalize(needed_limbs);
         r.positive = a.positive or (b & 1) == 0;
+    }
+
+    /// r = ⌊√a⌋
+    ///
+    /// r may alias a.
+    ///
+    /// Asserts that `r` has enough limbs to store the result. Upper bound is
+    /// `(a.limbs.len - 1) / 2 + 1`.
+    ///
+    /// `limbs_buffer` is used for temporary storage.
+    /// The amount required is given by `calcSqrtLimbsBufferLen`.
+    pub fn sqrt(
+        r: *Mutable,
+        a: Const,
+        limbs_buffer: []Limb,
+    ) void {
+        // Brent and Zimmermann, Modern Computer Arithmetic, Algorithm 1.13 SqrtInt
+        // https://members.loria.fr/PZimmermann/mca/pub226.html
+        var buf_index: usize = 0;
+        var t = b: {
+            const start = buf_index;
+            buf_index += a.limbs.len;
+            break :b Mutable.init(limbs_buffer[start..buf_index], 0);
+        };
+        var u = b: {
+            const start = buf_index;
+            const shift = (a.bitCountAbs() + 1) / 2;
+            buf_index += 1 + ((shift - 1) / limb_bits + 1);
+            var m = Mutable.init(limbs_buffer[start..buf_index], 1);
+            m.shiftLeft(m.toConst(), shift); // u must be >= ⌊√a⌋, and should be as small as possible for efficiency
+            break :b m;
+        };
+        var s = b: {
+            const start = buf_index;
+            buf_index += u.limbs.len;
+            break :b u.toConst().toMutable(limbs_buffer[start..buf_index]);
+        };
+        var rem = b: {
+            const start = buf_index;
+            buf_index += s.limbs.len;
+            break :b Mutable.init(limbs_buffer[start..buf_index], 0);
+        };
+
+        while (true) {
+            t.divFloor(&rem, a, s.toConst(), limbs_buffer[buf_index..]);
+            t.add(t.toConst(), s.toConst());
+            u.shiftRight(t.toConst(), 1);
+
+            if (u.toConst().order(s.toConst()).compare(.gte)) {
+                r.copy(s.toConst());
+                return;
+            }
+
+            // Avoid copying u to s by swapping u and s
+            var tmp_s = s;
+            s = u;
+            u = tmp_s;
+        }
     }
 
     /// rma may not alias x or y.
@@ -1387,7 +1445,7 @@ pub const Mutable = struct {
         var tmp_x = try Managed.init(limbs_buffer.allocator);
         defer tmp_x.deinit();
 
-        while (y.len() > 1 and !y.eqZero()) {
+        while (y.len() > 1 and !y.eqlZero()) {
             assert(x.isPositive() and y.isPositive());
             assert(x.len() >= y.len());
 
@@ -1451,7 +1509,7 @@ pub const Mutable = struct {
         // euclidean algorithm
         assert(x.toConst().order(y.toConst()) != .lt);
 
-        while (!y.toConst().eqZero()) {
+        while (!y.toConst().eqlZero()) {
             try t_big.divTrunc(&r, &x, &y);
             x.swap(&y);
             y.swap(&r);
@@ -1462,7 +1520,7 @@ pub const Mutable = struct {
 
     // Truncates by default.
     fn div(q: *Mutable, r: *Mutable, x: *Mutable, y: *Mutable) void {
-        assert(!y.eqZero()); // division by zero
+        assert(!y.eqlZero()); // division by zero
         assert(q != r); // illegal aliasing
 
         const q_positive = (x.positive == y.positive);
@@ -1483,15 +1541,15 @@ pub const Mutable = struct {
         // const x_trailing = std.mem.indexOfScalar(Limb, x.limbs[0..x.len], 0).?;
         // const y_trailing = std.mem.indexOfScalar(Limb, y.limbs[0..y.len], 0).?;
 
-        const x_trailing = for (x.limbs[0..x.len]) |xi, i| {
+        const x_trailing = for (x.limbs[0..x.len], 0..) |xi, i| {
             if (xi != 0) break i;
         } else unreachable;
 
-        const y_trailing = for (y.limbs[0..y.len]) |yi, i| {
+        const y_trailing = for (y.limbs[0..y.len], 0..) |yi, i| {
             if (yi != 0) break i;
         } else unreachable;
 
-        const xy_trailing = math.min(x_trailing, y_trailing);
+        const xy_trailing = @min(x_trailing, y_trailing);
 
         if (y.len - xy_trailing == 1) {
             const divisor = y.limbs[y.len - 1];
@@ -1499,7 +1557,7 @@ pub const Mutable = struct {
             // Optimization for small divisor. By using a half limb we can avoid requiring DoubleLimb
             // divisions in the hot code path. This may often require compiler_rt software-emulation.
             if (divisor < maxInt(HalfLimb)) {
-                lldiv0p5(q.limbs, &r.limbs[0], x.limbs[xy_trailing..x.len], @intCast(HalfLimb, divisor));
+                lldiv0p5(q.limbs, &r.limbs[0], x.limbs[xy_trailing..x.len], @as(HalfLimb, @intCast(divisor)));
             } else {
                 lldiv1(q.limbs, &r.limbs[0], x.limbs[xy_trailing..x.len], divisor);
             }
@@ -1529,10 +1587,10 @@ pub const Mutable = struct {
             r.positive = r_positive;
         }
 
-        if (xy_trailing != 0) {
+        if (xy_trailing != 0 and r.limbs[r.len - 1] != 0) {
             // Manually shift here since we know its limb aligned.
             mem.copyBackwards(Limb, r.limbs[xy_trailing..], r.limbs[0..r.len]);
-            mem.set(Limb, r.limbs[0..xy_trailing], 0);
+            @memset(r.limbs[0..xy_trailing], 0);
             r.len += xy_trailing;
         }
     }
@@ -1566,13 +1624,13 @@ pub const Mutable = struct {
         // for 0 <= j <= n - t, set q[j] to 0
         q.len = shift + 1;
         q.positive = true;
-        mem.set(Limb, q.limbs[0..q.len], 0);
+        @memset(q.limbs[0..q.len], 0);
 
         // 2.
         // while x >= y * b^(n - t):
         //    x -= y * b^(n - t)
         //    q[n - t] += 1
-        // Note, this algorithm is performed only once if y[t] > radix/2 and y is even, which we
+        // Note, this algorithm is performed only once if y[t] > base/2 and y is even, which we
         // enforced in step 0. This means we can replace the while with an if.
         // Note, multiplication by b^(n - t) comes down to shifting to the right by n - t limbs.
         // We can also replace x >= y * b^(n - t) by x/b^(n - t) >= y, and use shifts for that.
@@ -1616,7 +1674,7 @@ pub const Mutable = struct {
             } else {
                 const q0 = (@as(DoubleLimb, x.limbs[i]) << limb_bits) | @as(DoubleLimb, x.limbs[i - 1]);
                 const n0 = @as(DoubleLimb, y.limbs[t]);
-                q.limbs[k] = @intCast(Limb, q0 / n0);
+                q.limbs[k] = @as(Limb, @intCast(q0 / n0));
             }
 
             // 3.2
@@ -1677,6 +1735,41 @@ pub const Mutable = struct {
         y.shiftRight(y.toConst(), norm_shift);
     }
 
+    /// If a is positive, this passes through to truncate.
+    /// If a is negative, then r is set to positive with the bit pattern ~(a - 1).
+    /// r may alias a.
+    ///
+    /// Asserts `r` has enough storage to store the result.
+    /// The upper bound is `calcTwosCompLimbCount(a.len)`.
+    pub fn convertToTwosComplement(r: *Mutable, a: Const, signedness: Signedness, bit_count: usize) void {
+        if (a.positive) {
+            r.truncate(a, signedness, bit_count);
+            return;
+        }
+
+        const req_limbs = calcTwosCompLimbCount(bit_count);
+        if (req_limbs == 0 or a.eqlZero()) {
+            r.set(0);
+            return;
+        }
+
+        const bit = @as(Log2Limb, @truncate(bit_count - 1));
+        const signmask = @as(Limb, 1) << bit;
+        const mask = (signmask << 1) -% 1;
+
+        r.addScalar(a.abs(), -1);
+        if (req_limbs > r.len) {
+            @memset(r.limbs[r.len..req_limbs], 0);
+        }
+
+        assert(r.limbs.len >= req_limbs);
+        r.len = req_limbs;
+
+        llnot(r.limbs[0..r.len]);
+        r.limbs[r.len - 1] &= mask;
+        r.normalize(r.len);
+    }
+
     /// Truncate an integer to a number of bits, following 2s-complement semantics.
     /// r may alias a.
     ///
@@ -1686,12 +1779,12 @@ pub const Mutable = struct {
         const req_limbs = calcTwosCompLimbCount(bit_count);
 
         // Handle 0-bit integers.
-        if (req_limbs == 0 or a.eqZero()) {
+        if (req_limbs == 0 or a.eqlZero()) {
             r.set(0);
             return;
         }
 
-        const bit = @truncate(Log2Limb, bit_count - 1);
+        const bit = @as(Log2Limb, @truncate(bit_count - 1));
         const signmask = @as(Limb, 1) << bit; // 0b0..010...0 where 1 is the sign bit.
         const mask = (signmask << 1) -% 1; // 0b0..01..1 where the leftmost 1 is the sign bit.
 
@@ -1705,7 +1798,7 @@ pub const Mutable = struct {
 
             // Zero-extend the result
             if (req_limbs > r.len) {
-                mem.set(Limb, r.limbs[r.len..req_limbs], 0);
+                @memset(r.limbs[r.len..req_limbs], 0);
             }
 
             // Truncate to required number of limbs.
@@ -1800,7 +1893,7 @@ pub const Mutable = struct {
     /// if it were a field in packed memory at the provided bit offset.
     pub fn readPackedTwosComplement(
         x: *Mutable,
-        bytes: []const u8,
+        buffer: []const u8,
         bit_offset: usize,
         bit_count: usize,
         endian: Endian,
@@ -1819,11 +1912,11 @@ pub const Mutable = struct {
             const total_bits = bit_offset + bit_count;
             var last_byte = switch (endian) {
                 .Little => ((total_bits + 7) / 8) - 1,
-                .Big => bytes.len - ((total_bits + 7) / 8),
+                .Big => buffer.len - ((total_bits + 7) / 8),
             };
 
-            const sign_bit = @as(u8, 1) << @intCast(u3, (total_bits - 1) % 8);
-            positive = ((bytes[last_byte] & sign_bit) == 0);
+            const sign_bit = @as(u8, 1) << @as(u3, @intCast((total_bits - 1) % 8));
+            positive = ((buffer[last_byte] & sign_bit) == 0);
         }
 
         // Copy all complete limbs
@@ -1832,11 +1925,15 @@ pub const Mutable = struct {
         var bit_index: usize = 0;
         while (limb_index < bit_count / @bitSizeOf(Limb)) : (limb_index += 1) {
             // Read one Limb of bits
-            var limb = mem.readPackedInt(Limb, bytes, bit_index + bit_offset, endian);
+            var limb = mem.readPackedInt(Limb, buffer, bit_index + bit_offset, endian);
             bit_index += @bitSizeOf(Limb);
 
             // 2's complement (bitwise not, then add carry bit)
-            if (!positive) carry = @boolToInt(@addWithOverflow(Limb, ~limb, carry, &limb));
+            if (!positive) {
+                const ov = @addWithOverflow(~limb, carry);
+                limb = ov[0];
+                carry = ov[1];
+            }
             x.limbs[limb_index] = limb;
         }
 
@@ -1844,16 +1941,20 @@ pub const Mutable = struct {
         if (bit_count != bit_index) {
             // Read all remaining bits
             var limb = switch (signedness) {
-                .unsigned => mem.readVarPackedInt(Limb, bytes, bit_index + bit_offset, bit_count - bit_index, endian, .unsigned),
+                .unsigned => mem.readVarPackedInt(Limb, buffer, bit_index + bit_offset, bit_count - bit_index, endian, .unsigned),
                 .signed => b: {
                     const SLimb = std.meta.Int(.signed, @bitSizeOf(Limb));
-                    const limb = mem.readVarPackedInt(SLimb, bytes, bit_index + bit_offset, bit_count - bit_index, endian, .signed);
-                    break :b @bitCast(Limb, limb);
+                    const limb = mem.readVarPackedInt(SLimb, buffer, bit_index + bit_offset, bit_count - bit_index, endian, .signed);
+                    break :b @as(Limb, @bitCast(limb));
                 },
             };
 
             // 2's complement (bitwise not, then add carry bit)
-            if (!positive) assert(!@addWithOverflow(Limb, ~limb, carry, &limb));
+            if (!positive) {
+                const ov = @addWithOverflow(~limb, carry);
+                assert(ov[1] == 0);
+                limb = ov[0];
+            }
             x.limbs[limb_index] = limb;
 
             limb_index += 1;
@@ -1888,8 +1989,8 @@ pub const Const = struct {
 
     /// The result is an independent resource which is managed by the caller.
     pub fn toManaged(self: Const, allocator: Allocator) Allocator.Error!Managed {
-        const limbs = try allocator.alloc(Limb, math.max(Managed.default_capacity, self.limbs.len));
-        mem.copy(Limb, limbs, self.limbs);
+        const limbs = try allocator.alloc(Limb, @max(Managed.default_capacity, self.limbs.len));
+        @memcpy(limbs[0..self.limbs.len], self.limbs);
         return Managed{
             .allocator = allocator,
             .limbs = limbs,
@@ -1902,7 +2003,7 @@ pub const Const = struct {
 
     /// Asserts `limbs` is big enough to store the value.
     pub fn toMutable(self: Const, limbs: []Limb) Mutable {
-        mem.copy(Limb, limbs, self.limbs[0..self.limbs.len]);
+        @memcpy(limbs[0..self.limbs.len], self.limbs[0..self.limbs.len]);
         return .{
             .limbs = limbs,
             .positive = self.positive,
@@ -1974,15 +2075,63 @@ pub const Const = struct {
         return bits;
     }
 
+    /// @popCount with two's complement semantics.
+    ///
+    /// This returns the number of 1 bits set when the value would be represented in
+    /// two's complement with the given integer width (bit_count).
+    /// This includes the leading sign bit, which will be set for negative values.
+    ///
+    /// Asserts that bit_count is enough to represent value in two's compliment
+    /// and that the final result fits in a usize.
+    /// Asserts that there are no trailing empty limbs on the most significant end,
+    /// i.e. that limb count matches `calcLimbLen()` and zero is not negative.
+    pub fn popCount(self: Const, bit_count: usize) usize {
+        var sum: usize = 0;
+        if (self.positive) {
+            for (self.limbs) |limb| {
+                sum += @popCount(limb);
+            }
+        } else {
+            assert(self.fitsInTwosComp(.signed, bit_count));
+            assert(self.limbs[self.limbs.len - 1] != 0);
+
+            var remaining_bits = bit_count;
+            var carry: u1 = 1;
+            var add_res: Limb = undefined;
+
+            // All but the most significant limb.
+            for (self.limbs[0 .. self.limbs.len - 1]) |limb| {
+                const ov = @addWithOverflow(~limb, carry);
+                add_res = ov[0];
+                carry = ov[1];
+                sum += @popCount(add_res);
+                remaining_bits -= limb_bits; // Asserted not to underflow by fitsInTwosComp
+            }
+
+            // The most significant limb may have fewer than @bitSizeOf(Limb) meaningful bits,
+            // which we can detect with @clz().
+            // There may also be fewer limbs than needed to fill bit_count.
+            const limb = self.limbs[self.limbs.len - 1];
+            const leading_zeroes = @clz(limb);
+            // The most significant limb is asserted not to be all 0s (above),
+            // so ~limb cannot be all 1s, and ~limb + 1 cannot overflow.
+            sum += @popCount(~limb + carry);
+            sum -= leading_zeroes; // All leading zeroes were flipped and added to sum, so undo those
+            const remaining_ones = remaining_bits - (limb_bits - leading_zeroes); // All bits not covered by limbs
+            sum += remaining_ones;
+        }
+        return sum;
+    }
+
     pub fn fitsInTwosComp(self: Const, signedness: Signedness, bit_count: usize) bool {
-        if (self.eqZero()) {
+        if (self.eqlZero()) {
             return true;
         }
         if (signedness == .unsigned and !self.positive) {
             return false;
         }
 
-        const req_bits = self.bitCountTwosComp() + @boolToInt(self.positive and signedness == .signed);
+        const req_bits = self.bitCountTwosComp() + @intFromBool(self.positive and signedness == .signed);
         return bit_count >= req_bits;
     }
 
@@ -1997,7 +2146,7 @@ pub const Const = struct {
     /// value. It is inexact and may exceed the given value by ~1-2 bytes.
     /// TODO See if we can make this exact.
     pub fn sizeInBaseUpperBound(self: Const, base: usize) usize {
-        const bit_count = @as(usize, @boolToInt(!self.positive)) + self.bitCountAbs();
+        const bit_count = @as(usize, @intFromBool(!self.positive)) + self.bitCountAbs();
         return (bit_count / math.log2(base)) + 2;
     }
 
@@ -2012,6 +2161,9 @@ pub const Const = struct {
     pub fn to(self: Const, comptime T: type) ConvertError!T {
         switch (@typeInfo(T)) {
             .Int => |info| {
+                // Make sure -0 is handled correctly.
+                if (self.eqlZero()) return 0;
+
                 const UT = std.meta.Int(.unsigned, info.bits);
 
                 if (!self.fitsInTwosComp(info.signedness, info.bits)) {
@@ -2021,9 +2173,9 @@ pub const Const = struct {
                 var r: UT = 0;
 
                 if (@sizeOf(UT) <= @sizeOf(Limb)) {
-                    r = @intCast(UT, self.limbs[0]);
+                    r = @as(UT, @intCast(self.limbs[0]));
                 } else {
-                    for (self.limbs[0..self.limbs.len]) |_, ri| {
+                    for (self.limbs[0..self.limbs.len], 0..) |_, ri| {
                         const limb = self.limbs[self.limbs.len - ri - 1];
                         r <<= limb_bits;
                         r |= limb;
@@ -2031,10 +2183,10 @@ pub const Const = struct {
                 }
 
                 if (info.signedness == .unsigned) {
-                    return if (self.positive) @intCast(T, r) else error.NegativeIntoUnsigned;
+                    return if (self.positive) @as(T, @intCast(r)) else error.NegativeIntoUnsigned;
                 } else {
                     if (self.positive) {
-                        return @intCast(T, r);
+                        return @as(T, @intCast(r));
                     } else {
                         if (math.cast(T, r)) |ok| {
                             return -ok;
@@ -2060,23 +2212,23 @@ pub const Const = struct {
         out_stream: anytype,
     ) !void {
         _ = options;
-        comptime var radix = 10;
+        comptime var base = 10;
         comptime var case: std.fmt.Case = .lower;
 
         if (fmt.len == 0 or comptime mem.eql(u8, fmt, "d")) {
-            radix = 10;
+            base = 10;
             case = .lower;
         } else if (comptime mem.eql(u8, fmt, "b")) {
-            radix = 2;
+            base = 2;
             case = .lower;
         } else if (comptime mem.eql(u8, fmt, "x")) {
-            radix = 16;
+            base = 16;
             case = .lower;
         } else if (comptime mem.eql(u8, fmt, "X")) {
-            radix = 16;
+            base = 16;
             case = .upper;
         } else {
-            @compileError("Unknown format string: '" ++ fmt ++ "'");
+            std.fmt.invalidFmtError(fmt, self);
         }
 
         var limbs: [128]Limb = undefined;
@@ -2091,8 +2243,8 @@ pub const Const = struct {
             .limbs = &([1]Limb{comptime math.maxInt(Limb)} ** available_len),
             .positive = false,
         };
-        var buf: [biggest.sizeInBaseUpperBound(radix)]u8 = undefined;
-        const len = self.toString(&buf, radix, case, &limbs);
+        var buf: [biggest.sizeInBaseUpperBound(base)]u8 = undefined;
+        const len = self.toString(&buf, base, case, &limbs);
         return out_stream.writeAll(buf[0..len]);
     }
 
@@ -2104,7 +2256,7 @@ pub const Const = struct {
         assert(base >= 2);
         assert(base <= 16);
 
-        if (self.eqZero()) {
+        if (self.eqlZero()) {
             return allocator.dupe(u8, "0");
         }
         const string = try allocator.alloc(u8, self.sizeInBaseUpperBound(base));
@@ -2113,7 +2265,7 @@ pub const Const = struct {
         const limbs = try allocator.alloc(Limb, calcToStringLimbsBufferLen(self.limbs.len, base));
         defer allocator.free(limbs);
 
-        return allocator.shrink(string, self.toString(string, base, case, limbs));
+        return allocator.realloc(string, self.toString(string, base, case, limbs));
     }
 
     /// Converts self to a string in the requested base.
@@ -2129,7 +2281,7 @@ pub const Const = struct {
         assert(base >= 2);
         assert(base <= 16);
 
-        if (self.eqZero()) {
+        if (self.eqlZero()) {
             string[0] = '0';
             return 1;
         }
@@ -2143,7 +2295,7 @@ pub const Const = struct {
             outer: for (self.limbs[0..self.limbs.len]) |limb| {
                 var shift: usize = 0;
                 while (shift < limb_bits) : (shift += base_shift) {
-                    const r = @intCast(u8, (limb >> @intCast(Log2Limb, shift)) & @as(Limb, base - 1));
+                    const r = @as(u8, @intCast((limb >> @as(Log2Limb, @intCast(shift))) & @as(Limb, base - 1)));
                     const ch = std.fmt.digitToChar(r, case);
                     string[digits_len] = ch;
                     digits_len += 1;
@@ -2172,7 +2324,7 @@ pub const Const = struct {
                 .positive = true, // Make absolute by ignoring self.positive.
                 .len = self.limbs.len,
             };
-            mem.copy(Limb, q.limbs, self.limbs);
+            @memcpy(q.limbs[0..self.limbs.len], self.limbs);
 
             var r: Mutable = .{
                 .limbs = limbs_buffer[q.limbs.len..][0..self.limbs.len],
@@ -2191,7 +2343,7 @@ pub const Const = struct {
                 var r_word = r.limbs[0];
                 var i: usize = 0;
                 while (i < digits_per_limb) : (i += 1) {
-                    const ch = std.fmt.digitToChar(@intCast(u8, r_word % base), case);
+                    const ch = std.fmt.digitToChar(@as(u8, @intCast(r_word % base)), case);
                     r_word /= base;
                     string[digits_len] = ch;
                     digits_len += 1;
@@ -2203,7 +2355,7 @@ pub const Const = struct {
 
                 var r_word = q.limbs[0];
                 while (r_word != 0) {
-                    const ch = std.fmt.digitToChar(@intCast(u8, r_word % base), case);
+                    const ch = std.fmt.digitToChar(@as(u8, @intCast(r_word % base)), case);
                     r_word /= base;
                     string[digits_len] = ch;
                     digits_len += 1;
@@ -2237,7 +2389,7 @@ pub const Const = struct {
     ///
     /// This is equivalent to storing the value of an integer with `bit_count` bits as
     /// if it were a field in packed memory at the provided bit offset.
-    pub fn writePackedTwosComplement(x: Const, bytes: []u8, bit_offset: usize, bit_count: usize, endian: Endian) void {
+    pub fn writePackedTwosComplement(x: Const, buffer: []u8, bit_offset: usize, bit_count: usize, endian: Endian) void {
         assert(x.fitsInTwosComp(if (x.positive) .unsigned else .signed, bit_count));
 
         // Copy all complete limbs
@@ -2248,10 +2400,14 @@ pub const Const = struct {
             var limb: Limb = if (limb_index < x.limbs.len) x.limbs[limb_index] else 0;
 
             // 2's complement (bitwise not, then add carry bit)
-            if (!x.positive) carry = @boolToInt(@addWithOverflow(Limb, ~limb, carry, &limb));
+            if (!x.positive) {
+                const ov = @addWithOverflow(~limb, carry);
+                limb = ov[0];
+                carry = ov[1];
+            }
 
             // Write one Limb of bits
-            mem.writePackedInt(Limb, bytes, bit_index + bit_offset, limb, endian);
+            mem.writePackedInt(Limb, buffer, bit_index + bit_offset, limb, endian);
             bit_index += @bitSizeOf(Limb);
         }
 
@@ -2260,10 +2416,10 @@ pub const Const = struct {
             var limb: Limb = if (limb_index < x.limbs.len) x.limbs[limb_index] else 0;
 
             // 2's complement (bitwise not, then add carry bit)
-            if (!x.positive) _ = @addWithOverflow(Limb, ~limb, carry, &limb);
+            if (!x.positive) limb = ~limb +% carry;
 
             // Write all remaining bits
-            mem.writeVarPackedInt(bytes, bit_index + bit_offset, bit_count - bit_index, limb, endian);
+            mem.writeVarPackedInt(buffer, bit_index + bit_offset, bit_count - bit_index, limb, endian);
         }
     }
 
@@ -2325,21 +2481,54 @@ pub const Const = struct {
         return order(lhs, rhs.toConst());
     }
 
+    // TODO: remove after release of 0.11
+    pub const eqZero = @compileError("use eqlZero");
+    pub const eqAbs = @compileError("use eqlAbs");
+    pub const eq = @compileError("use eql");
+
     /// Returns true if `a == 0`.
-    pub fn eqZero(a: Const) bool {
+    pub fn eqlZero(a: Const) bool {
         var d: Limb = 0;
         for (a.limbs) |limb| d |= limb;
         return d == 0;
     }
 
     /// Returns true if `|a| == |b|`.
-    pub fn eqAbs(a: Const, b: Const) bool {
+    pub fn eqlAbs(a: Const, b: Const) bool {
         return orderAbs(a, b) == .eq;
     }
 
     /// Returns true if `a == b`.
-    pub fn eq(a: Const, b: Const) bool {
+    pub fn eql(a: Const, b: Const) bool {
         return order(a, b) == .eq;
+    }
+
+    pub fn clz(a: Const, bits: Limb) Limb {
+        // Limbs are stored in little-endian order but we need
+        // to iterate big-endian.
+        var total_limb_lz: Limb = 0;
+        var i: usize = a.limbs.len;
+        const bits_per_limb = @sizeOf(Limb) * 8;
+        while (i != 0) {
+            i -= 1;
+            const limb = a.limbs[i];
+            const this_limb_lz = @clz(limb);
+            total_limb_lz += this_limb_lz;
+            if (this_limb_lz != bits_per_limb) break;
+        }
+        const total_limb_bits = a.limbs.len * bits_per_limb;
+        return total_limb_lz + bits - total_limb_bits;
+    }
+
+    pub fn ctz(a: Const, bits: Limb) Limb {
+        // Limbs are stored in little-endian order.
+        var result: Limb = 0;
+        for (a.limbs) |limb| {
+            const limb_tz = @ctz(limb);
+            result += limb_tz;
+            if (limb_tz != @sizeOf(Limb) * 8) break;
+        }
+        return @min(result, bits);
     }
 };
 
@@ -2408,7 +2597,7 @@ pub const Managed = struct {
             .allocator = allocator,
             .metadata = 1,
             .limbs = block: {
-                const limbs = try allocator.alloc(Limb, math.max(default_capacity, capacity));
+                const limbs = try allocator.alloc(Limb, @max(default_capacity, capacity));
                 limbs[0] = 0;
                 break :block limbs;
             },
@@ -2474,8 +2663,8 @@ pub const Managed = struct {
             .allocator = allocator,
             .metadata = other.metadata,
             .limbs = block: {
-                var limbs = try allocator.alloc(Limb, other.len());
-                mem.copy(Limb, limbs[0..], other.limbs[0..other.len()]);
+                const limbs = try allocator.alloc(Limb, other.len());
+                @memcpy(limbs, other.limbs[0..other.len()]);
                 break :block limbs;
             },
         };
@@ -2487,7 +2676,7 @@ pub const Managed = struct {
         if (self.limbs.ptr == other.limbs.ptr) return;
 
         try self.ensureCapacity(other.limbs.len);
-        mem.copy(Limb, self.limbs[0..], other.limbs[0..other.limbs.len]);
+        @memcpy(self.limbs[0..other.limbs.len], other.limbs[0..other.limbs.len]);
         self.setMetadata(other.positive, other.limbs.len);
     }
 
@@ -2641,19 +2830,24 @@ pub const Managed = struct {
         return a.toConst().order(b.toConst());
     }
 
+    // TODO: remove after release of 0.11
+    pub const eqZero = @compileError("use eqlZero");
+    pub const eqAbs = @compileError("use eqlAbs");
+    pub const eq = @compileError("use eql");
+
     /// Returns true if a == 0.
-    pub fn eqZero(a: Managed) bool {
-        return a.toConst().eqZero();
+    pub fn eqlZero(a: Managed) bool {
+        return a.toConst().eqlZero();
     }
 
     /// Returns true if |a| == |b|.
-    pub fn eqAbs(a: Managed, b: Managed) bool {
-        return a.toConst().eqAbs(b.toConst());
+    pub fn eqlAbs(a: Managed, b: Managed) bool {
+        return a.toConst().eqlAbs(b.toConst());
     }
 
     /// Returns true if a == b.
-    pub fn eq(a: Managed, b: Managed) bool {
-        return a.toConst().eq(b.toConst());
+    pub fn eql(a: Managed, b: Managed) bool {
+        return a.toConst().eql(b.toConst());
     }
 
     /// Normalize a possible sequence of leading zeros.
@@ -2700,7 +2894,7 @@ pub const Managed = struct {
         r.setMetadata(m.positive, m.len);
     }
 
-    /// r = a + b with 2s-complement wrapping semantics. Returns whether any overflow occured.
+    /// r = a + b with 2s-complement wrapping semantics. Returns whether any overflow occurred.
     ///
     /// r, a and b may be aliases.
     ///
@@ -2737,13 +2931,13 @@ pub const Managed = struct {
     ///
     /// Returns an error if memory could not be allocated.
     pub fn sub(r: *Managed, a: *const Managed, b: *const Managed) !void {
-        try r.ensureCapacity(math.max(a.len(), b.len()) + 1);
+        try r.ensureCapacity(@max(a.len(), b.len()) + 1);
         var m = r.toMutable();
         m.sub(a.toConst(), b.toConst());
         r.setMetadata(m.positive, m.len);
     }
 
-    /// r = a - b with 2s-complement wrapping semantics. Returns whether any overflow occured.
+    /// r = a - b with 2s-complement wrapping semantics. Returns whether any overflow occurred.
     ///
     /// r, a and b may be aliases.
     ///
@@ -2844,11 +3038,11 @@ pub const Managed = struct {
     }
 
     pub fn ensureAddScalarCapacity(r: *Managed, a: Const, scalar: anytype) !void {
-        try r.ensureCapacity(math.max(a.limbs.len, calcLimbLen(scalar)) + 1);
+        try r.ensureCapacity(@max(a.limbs.len, calcLimbLen(scalar)) + 1);
     }
 
     pub fn ensureAddCapacity(r: *Managed, a: Const, b: Const) !void {
-        try r.ensureCapacity(math.max(a.limbs.len, b.limbs.len) + 1);
+        try r.ensureCapacity(@max(a.limbs.len, b.limbs.len) + 1);
     }
 
     pub fn ensureMulCapacity(rma: *Managed, a: Const, b: Const) !void {
@@ -2942,7 +3136,7 @@ pub const Managed = struct {
     ///
     /// a and b are zero-extended to the longer of a or b.
     pub fn bitOr(r: *Managed, a: *const Managed, b: *const Managed) !void {
-        try r.ensureCapacity(math.max(a.len(), b.len()));
+        try r.ensureCapacity(@max(a.len(), b.len()));
         var m = r.toMutable();
         m.bitOr(a.toConst(), b.toConst());
         r.setMetadata(m.positive, m.len);
@@ -2951,9 +3145,9 @@ pub const Managed = struct {
     /// r = a & b
     pub fn bitAnd(r: *Managed, a: *const Managed, b: *const Managed) !void {
         const cap = if (a.isPositive() or b.isPositive())
-            math.min(a.len(), b.len())
+            @min(a.len(), b.len())
         else
-            math.max(a.len(), b.len()) + 1;
+            @max(a.len(), b.len()) + 1;
         try r.ensureCapacity(cap);
         var m = r.toMutable();
         m.bitAnd(a.toConst(), b.toConst());
@@ -2962,7 +3156,7 @@ pub const Managed = struct {
 
     /// r = a ^ b
     pub fn bitXor(r: *Managed, a: *const Managed, b: *const Managed) !void {
-        var cap = math.max(a.len(), b.len()) + @boolToInt(a.isPositive() != b.isPositive());
+        var cap = @max(a.len(), b.len()) + @intFromBool(a.isPositive() != b.isPositive());
         try r.ensureCapacity(cap);
 
         var m = r.toMutable();
@@ -2975,7 +3169,7 @@ pub const Managed = struct {
     ///
     /// rma's allocator is used for temporary storage to boost multiplication performance.
     pub fn gcd(rma: *Managed, x: *const Managed, y: *const Managed) !void {
-        try rma.ensureCapacity(math.min(x.len(), y.len()));
+        try rma.ensureCapacity(@min(x.len(), y.len()));
         var m = rma.toMutable();
         var limbs_buffer = std.ArrayList(Limb).init(rma.allocator);
         defer limbs_buffer.deinit();
@@ -3025,6 +3219,19 @@ pub const Managed = struct {
             try rma_mut.pow(a.toConst(), b, limbs_buffer);
             rma.setMetadata(rma_mut.positive, rma_mut.len);
         }
+    }
+
+    /// r = ⌊√a⌋
+    pub fn sqrt(rma: *Managed, a: *const Managed) !void {
+        const needed_limbs = calcSqrtLimbsBufferLen(a.bitCountAbs());
+
+        const limbs_buffer = try rma.allocator.alloc(Limb, needed_limbs);
+        defer rma.allocator.free(limbs_buffer);
+
+        try rma.ensureCapacity((a.len() - 1) / 2 + 1);
+        var m = rma.toMutable();
+        m.sqrt(a.toConst(), limbs_buffer);
+        rma.setMetadata(m.positive, m.len);
     }
 
     /// r = truncate(Int(signedness, bit_count), a)
@@ -3162,13 +3369,13 @@ fn llmulaccKaratsuba(
     // For a1 and b1 we only need `limbs_after_split` limbs.
     const a1 = blk: {
         var a1 = a[split..];
-        a1.len = math.min(llnormalize(a1), limbs_after_split);
+        a1.len = @min(llnormalize(a1), limbs_after_split);
         break :blk a1;
     };
 
     const b1 = blk: {
         var b1 = b[split..];
-        b1.len = math.min(llnormalize(b1), limbs_after_split);
+        b1.len = @min(llnormalize(b1), limbs_after_split);
         break :blk b1;
     };
 
@@ -3187,10 +3394,10 @@ fn llmulaccKaratsuba(
 
     // Compute p2.
     // Note, we don't need to compute all of p2, just enough limbs to satisfy r.
-    const p2_limbs = math.min(limbs_after_split, a1.len + b1.len);
+    const p2_limbs = @min(limbs_after_split, a1.len + b1.len);
 
-    mem.set(Limb, tmp[0..p2_limbs], 0);
-    llmulacc(.add, allocator, tmp[0..p2_limbs], a1[0..math.min(a1.len, p2_limbs)], b1[0..math.min(b1.len, p2_limbs)]);
+    @memset(tmp[0..p2_limbs], 0);
+    llmulacc(.add, allocator, tmp[0..p2_limbs], a1[0..@min(a1.len, p2_limbs)], b1[0..@min(b1.len, p2_limbs)]);
     const p2 = tmp[0..llnormalize(tmp[0..p2_limbs])];
 
     // Add p2 * B to the result.
@@ -3198,13 +3405,13 @@ fn llmulaccKaratsuba(
 
     // Add p2 * B^2 to the result if required.
     if (limbs_after_split2 > 0) {
-        llaccum(op, r[split * 2 ..], p2[0..math.min(p2.len, limbs_after_split2)]);
+        llaccum(op, r[split * 2 ..], p2[0..@min(p2.len, limbs_after_split2)]);
     }
 
     // Compute p0.
     // Since a0.len, b0.len <= split and r.len >= split * 2, the full width of p0 needs to be computed.
     const p0_limbs = a0.len + b0.len;
-    mem.set(Limb, tmp[0..p0_limbs], 0);
+    @memset(tmp[0..p0_limbs], 0);
     llmulacc(.add, allocator, tmp[0..p0_limbs], a0, b0);
     const p0 = tmp[0..llnormalize(tmp[0..p0_limbs])];
 
@@ -3212,13 +3419,13 @@ fn llmulaccKaratsuba(
     llaccum(op, r, p0);
 
     // Add p0 * B to the result. In this case, we may not need all of it.
-    llaccum(op, r[split..], p0[0..math.min(limbs_after_split, p0.len)]);
+    llaccum(op, r[split..], p0[0..@min(limbs_after_split, p0.len)]);
 
     // Finally, compute and add p1.
     // From now on we only need `limbs_after_split` limbs for a0 and b0, since the result of the
     // following computation will be added * B.
-    const a0x = a0[0..std.math.min(a0.len, limbs_after_split)];
-    const b0x = b0[0..std.math.min(b0.len, limbs_after_split)];
+    const a0x = a0[0..@min(a0.len, limbs_after_split)];
+    const b0x = b0[0..@min(b0.len, limbs_after_split)];
 
     const j0_sign = llcmp(a0x, a1);
     const j1_sign = llcmp(b1, b0x);
@@ -3228,7 +3435,7 @@ fn llmulaccKaratsuba(
         return;
     }
 
-    mem.set(Limb, tmp, 0);
+    @memset(tmp, 0);
 
     // p1 is nonzero, so compute the intermediary terms j0 = a0 - a1 and j1 = b1 - b0.
     // Note that in this case, we again need some storage for intermediary results
@@ -3286,14 +3493,17 @@ fn llaccum(comptime op: AccOp, r: []Limb, a: []const Limb) void {
     var carry: Limb = 0;
 
     while (i < a.len) : (i += 1) {
-        var c: Limb = 0;
-        c += @boolToInt(@addWithOverflow(Limb, r[i], a[i], &r[i]));
-        c += @boolToInt(@addWithOverflow(Limb, r[i], carry, &r[i]));
-        carry = c;
+        const ov1 = @addWithOverflow(r[i], a[i]);
+        r[i] = ov1[0];
+        const ov2 = @addWithOverflow(r[i], carry);
+        r[i] = ov2[0];
+        carry = @as(Limb, ov1[1]) + ov2[1];
     }
 
     while ((carry != 0) and i < r.len) : (i += 1) {
-        carry = @boolToInt(@addWithOverflow(Limb, r[i], carry, &r[i]));
+        const ov = @addWithOverflow(r[i], carry);
+        r[i] = ov[0];
+        carry = ov[1];
     }
 }
 
@@ -3347,7 +3557,7 @@ fn llmulLimb(comptime op: AccOp, acc: []Limb, y: []const Limb, xi: Limb) bool {
         return false;
     }
 
-    const split = std.math.min(y.len, acc.len);
+    const split = @min(y.len, acc.len);
     var a_lo = acc[0..split];
     var a_hi = acc[split..];
 
@@ -3361,7 +3571,9 @@ fn llmulLimb(comptime op: AccOp, acc: []Limb, y: []const Limb, xi: Limb) bool {
 
             j = 0;
             while ((carry != 0) and (j < a_hi.len)) : (j += 1) {
-                carry = @boolToInt(@addWithOverflow(Limb, a_hi[j], carry, &a_hi[j]));
+                const ov = @addWithOverflow(a_hi[j], carry);
+                a_hi[j] = ov[0];
+                carry = ov[1];
             }
 
             return carry != 0;
@@ -3375,7 +3587,9 @@ fn llmulLimb(comptime op: AccOp, acc: []Limb, y: []const Limb, xi: Limb) bool {
 
             j = 0;
             while ((borrow != 0) and (j < a_hi.len)) : (j += 1) {
-                borrow = @boolToInt(@subWithOverflow(Limb, a_hi[j], borrow, &a_hi[j]));
+                const ov = @subWithOverflow(a_hi[j], borrow);
+                a_hi[j] = ov[0];
+                borrow = ov[1];
             }
 
             return borrow != 0;
@@ -3408,14 +3622,17 @@ fn llsubcarry(r: []Limb, a: []const Limb, b: []const Limb) Limb {
     var borrow: Limb = 0;
 
     while (i < b.len) : (i += 1) {
-        var c: Limb = 0;
-        c += @boolToInt(@subWithOverflow(Limb, a[i], b[i], &r[i]));
-        c += @boolToInt(@subWithOverflow(Limb, r[i], borrow, &r[i]));
-        borrow = c;
+        const ov1 = @subWithOverflow(a[i], b[i]);
+        r[i] = ov1[0];
+        const ov2 = @subWithOverflow(r[i], borrow);
+        r[i] = ov2[0];
+        borrow = @as(Limb, ov1[1]) + ov2[1];
     }
 
     while (i < a.len) : (i += 1) {
-        borrow = @boolToInt(@subWithOverflow(Limb, a[i], borrow, &r[i]));
+        const ov = @subWithOverflow(a[i], borrow);
+        r[i] = ov[0];
+        borrow = ov[1];
     }
 
     return borrow;
@@ -3438,14 +3655,17 @@ fn lladdcarry(r: []Limb, a: []const Limb, b: []const Limb) Limb {
     var carry: Limb = 0;
 
     while (i < b.len) : (i += 1) {
-        var c: Limb = 0;
-        c += @boolToInt(@addWithOverflow(Limb, a[i], b[i], &r[i]));
-        c += @boolToInt(@addWithOverflow(Limb, r[i], carry, &r[i]));
-        carry = c;
+        const ov1 = @addWithOverflow(a[i], b[i]);
+        r[i] = ov1[0];
+        const ov2 = @addWithOverflow(r[i], carry);
+        r[i] = ov2[0];
+        carry = @as(Limb, ov1[1]) + ov2[1];
     }
 
     while (i < a.len) : (i += 1) {
-        carry = @boolToInt(@addWithOverflow(Limb, a[i], carry, &r[i]));
+        const ov = @addWithOverflow(a[i], carry);
+        r[i] = ov[0];
+        carry = ov[1];
     }
 
     return carry;
@@ -3464,7 +3684,7 @@ fn lldiv1(quo: []Limb, rem: *Limb, a: []const Limb, b: Limb) void {
     assert(quo.len >= a.len);
 
     rem.* = 0;
-    for (a) |_, ri| {
+    for (a, 0..) |_, ri| {
         const i = a.len - ri - 1;
         const pdiv = ((@as(DoubleLimb, rem.*) << limb_bits) | a[i]);
 
@@ -3473,13 +3693,13 @@ fn lldiv1(quo: []Limb, rem: *Limb, a: []const Limb, b: Limb) void {
             rem.* = 0;
         } else if (pdiv < b) {
             quo[i] = 0;
-            rem.* = @truncate(Limb, pdiv);
+            rem.* = @as(Limb, @truncate(pdiv));
         } else if (pdiv == b) {
             quo[i] = 1;
             rem.* = 0;
         } else {
-            quo[i] = @truncate(Limb, @divTrunc(pdiv, b));
-            rem.* = @truncate(Limb, pdiv - (quo[i] *% b));
+            quo[i] = @as(Limb, @truncate(@divTrunc(pdiv, b)));
+            rem.* = @as(Limb, @truncate(pdiv - (quo[i] *% b)));
         }
     }
 }
@@ -3490,7 +3710,7 @@ fn lldiv0p5(quo: []Limb, rem: *Limb, a: []const Limb, b: HalfLimb) void {
     assert(quo.len >= a.len);
 
     rem.* = 0;
-    for (a) |_, ri| {
+    for (a, 0..) |_, ri| {
         const i = a.len - ri - 1;
         const ai_high = a[i] >> half_limb_bits;
         const ai_low = a[i] & ((1 << half_limb_bits) - 1);
@@ -3512,7 +3732,7 @@ fn llshl(r: []Limb, a: []const Limb, shift: usize) void {
     @setRuntimeSafety(debug_safety);
     assert(a.len >= 1);
 
-    const interior_limb_shift = @truncate(Log2Limb, shift);
+    const interior_limb_shift = @as(Log2Limb, @truncate(shift));
 
     // We only need the extra limb if the shift of the last element overflows.
     // This is useful for the implementation of `shiftLeftSat`.
@@ -3531,16 +3751,16 @@ fn llshl(r: []Limb, a: []const Limb, shift: usize) void {
         const dst_i = src_i + limb_shift;
 
         const src_digit = a[src_i];
-        r[dst_i] = carry | @call(.{ .modifier = .always_inline }, math.shr, .{
+        r[dst_i] = carry | @call(.always_inline, math.shr, .{
             Limb,
             src_digit,
-            limb_bits - @intCast(Limb, interior_limb_shift),
+            limb_bits - @as(Limb, @intCast(interior_limb_shift)),
         });
         carry = (src_digit << interior_limb_shift);
     }
 
     r[limb_shift - 1] = carry;
-    mem.set(Limb, r[0 .. limb_shift - 1], 0);
+    @memset(r[0 .. limb_shift - 1], 0);
 }
 
 fn llshr(r: []Limb, a: []const Limb, shift: usize) void {
@@ -3549,7 +3769,7 @@ fn llshr(r: []Limb, a: []const Limb, shift: usize) void {
     assert(r.len >= a.len - (shift / limb_bits));
 
     const limb_shift = shift / limb_bits;
-    const interior_limb_shift = @truncate(Log2Limb, shift);
+    const interior_limb_shift = @as(Log2Limb, @truncate(shift));
 
     var carry: Limb = 0;
     var i: usize = 0;
@@ -3559,10 +3779,10 @@ fn llshr(r: []Limb, a: []const Limb, shift: usize) void {
 
         const src_digit = a[src_i];
         r[dst_i] = carry | (src_digit >> interior_limb_shift);
-        carry = @call(.{ .modifier = .always_inline }, math.shl, .{
+        carry = @call(.always_inline, math.shl, .{
             Limb,
             src_digit,
-            limb_bits - @intCast(Limb, interior_limb_shift),
+            limb_bits - @as(Limb, @intCast(interior_limb_shift)),
         });
     }
 }
@@ -3611,11 +3831,11 @@ fn llsignedor(r: []Limb, a: []const Limb, a_positive: bool, b: []const Limb, b_p
         var r_carry: u1 = 1;
 
         while (i < b.len) : (i += 1) {
-            var a_limb: Limb = undefined;
-            a_borrow = @boolToInt(@subWithOverflow(Limb, a[i], a_borrow, &a_limb));
-
-            r[i] = a_limb & ~b[i];
-            r_carry = @boolToInt(@addWithOverflow(Limb, r[i], r_carry, &r[i]));
+            const ov1 = @subWithOverflow(a[i], a_borrow);
+            a_borrow = ov1[1];
+            const ov2 = @addWithOverflow(ov1[0] & ~b[i], r_carry);
+            r[i] = ov2[0];
+            r_carry = ov2[1];
         }
 
         // In order for r_carry to be nonzero at this point, ~b[i] would need to be
@@ -3628,7 +3848,9 @@ fn llsignedor(r: []Limb, a: []const Limb, a_positive: bool, b: []const Limb, b_p
         // Note, if a_borrow is zero we do not need to compute anything for
         // the higher limbs so we can early return here.
         while (i < a.len and a_borrow == 1) : (i += 1) {
-            a_borrow = @boolToInt(@subWithOverflow(Limb, a[i], a_borrow, &r[i]));
+            const ov = @subWithOverflow(a[i], a_borrow);
+            r[i] = ov[0];
+            a_borrow = ov[1];
         }
 
         assert(a_borrow == 0); // a was 0.
@@ -3647,11 +3869,11 @@ fn llsignedor(r: []Limb, a: []const Limb, a_positive: bool, b: []const Limb, b_p
         var r_carry: u1 = 1;
 
         while (i < b.len) : (i += 1) {
-            var b_limb: Limb = undefined;
-            b_borrow = @boolToInt(@subWithOverflow(Limb, b[i], b_borrow, &b_limb));
-
-            r[i] = ~a[i] & b_limb;
-            r_carry = @boolToInt(@addWithOverflow(Limb, r[i], r_carry, &r[i]));
+            const ov1 = @subWithOverflow(b[i], b_borrow);
+            b_borrow = ov1[1];
+            const ov2 = @addWithOverflow(~a[i] & ov1[0], r_carry);
+            r[i] = ov2[0];
+            r_carry = ov2[1];
         }
 
         // b is at least 1, so this should never underflow.
@@ -3678,14 +3900,13 @@ fn llsignedor(r: []Limb, a: []const Limb, a_positive: bool, b: []const Limb, b_p
         var r_carry: u1 = 1;
 
         while (i < b.len) : (i += 1) {
-            var a_limb: Limb = undefined;
-            a_borrow = @boolToInt(@subWithOverflow(Limb, a[i], a_borrow, &a_limb));
-
-            var b_limb: Limb = undefined;
-            b_borrow = @boolToInt(@subWithOverflow(Limb, b[i], b_borrow, &b_limb));
-
-            r[i] = a_limb & b_limb;
-            r_carry = @boolToInt(@addWithOverflow(Limb, r[i], r_carry, &r[i]));
+            const ov1 = @subWithOverflow(a[i], a_borrow);
+            a_borrow = ov1[1];
+            const ov2 = @subWithOverflow(b[i], b_borrow);
+            b_borrow = ov2[1];
+            const ov3 = @addWithOverflow(ov1[0] & ov2[0], r_carry);
+            r[i] = ov3[0];
+            r_carry = ov3[1];
         }
 
         // b is at least 1, so this should never underflow.
@@ -3737,9 +3958,9 @@ fn llsignedand(r: []Limb, a: []const Limb, a_positive: bool, b: []const Limb, b_
         var a_borrow: u1 = 1;
 
         while (i < b.len) : (i += 1) {
-            var a_limb: Limb = undefined;
-            a_borrow = @boolToInt(@subWithOverflow(Limb, a[i], a_borrow, &a_limb));
-            r[i] = ~a_limb & b[i];
+            const ov = @subWithOverflow(a[i], a_borrow);
+            a_borrow = ov[1];
+            r[i] = ~ov[0] & b[i];
         }
 
         // With b = 0 we have ~(a - 1) & 0 = 0, so the upper bytes are zero.
@@ -3756,9 +3977,9 @@ fn llsignedand(r: []Limb, a: []const Limb, a_positive: bool, b: []const Limb, b_
         var b_borrow: u1 = 1;
 
         while (i < b.len) : (i += 1) {
-            var a_limb: Limb = undefined;
-            b_borrow = @boolToInt(@subWithOverflow(Limb, b[i], b_borrow, &a_limb));
-            r[i] = a[i] & ~a_limb;
+            const ov = @subWithOverflow(b[i], b_borrow);
+            b_borrow = ov[1];
+            r[i] = a[i] & ~ov[0];
         }
 
         assert(b_borrow == 0); // b was 0
@@ -3781,14 +4002,13 @@ fn llsignedand(r: []Limb, a: []const Limb, a_positive: bool, b: []const Limb, b_
         var r_carry: u1 = 1;
 
         while (i < b.len) : (i += 1) {
-            var a_limb: Limb = undefined;
-            a_borrow = @boolToInt(@subWithOverflow(Limb, a[i], a_borrow, &a_limb));
-
-            var b_limb: Limb = undefined;
-            b_borrow = @boolToInt(@subWithOverflow(Limb, b[i], b_borrow, &b_limb));
-
-            r[i] = a_limb | b_limb;
-            r_carry = @boolToInt(@addWithOverflow(Limb, r[i], r_carry, &r[i]));
+            const ov1 = @subWithOverflow(a[i], a_borrow);
+            a_borrow = ov1[1];
+            const ov2 = @subWithOverflow(b[i], b_borrow);
+            b_borrow = ov2[1];
+            const ov3 = @addWithOverflow(ov1[0] | ov2[0], r_carry);
+            r[i] = ov3[0];
+            r_carry = ov3[1];
         }
 
         // b is at least 1, so this should never underflow.
@@ -3796,8 +4016,11 @@ fn llsignedand(r: []Limb, a: []const Limb, a_positive: bool, b: []const Limb, b_
 
         // With b = 0 and b_borrow = 0 we get (-a - 1) | (-0 - 0) = (-a - 1) | 0 = -a - 1.
         while (i < a.len) : (i += 1) {
-            a_borrow = @boolToInt(@subWithOverflow(Limb, a[i], a_borrow, &r[i]));
-            r_carry = @boolToInt(@addWithOverflow(Limb, r[i], r_carry, &r[i]));
+            const ov1 = @subWithOverflow(a[i], a_borrow);
+            a_borrow = ov1[1];
+            const ov2 = @addWithOverflow(ov1[0], r_carry);
+            r[i] = ov2[0];
+            r_carry = ov2[1];
         }
 
         assert(a_borrow == 0); // a was 0.
@@ -3813,8 +4036,8 @@ fn llsignedand(r: []Limb, a: []const Limb, a_positive: bool, b: []const Limb, b_
 // r may alias.
 // a and b must not be -0.
 // Returns `true` when the result is positive.
-// If the sign of a and b is equal, then r requires at least `max(a.len, b.len)` limbs are required.
-// Otherwise, r requires at least `max(a.len, b.len) + 1` limbs.
+// If the sign of a and b is equal, then r requires at least `@max(a.len, b.len)` limbs are required.
+// Otherwise, r requires at least `@max(a.len, b.len) + 1` limbs.
 fn llsignedxor(r: []Limb, a: []const Limb, a_positive: bool, b: []const Limb, b_positive: bool) bool {
     @setRuntimeSafety(debug_safety);
     assert(a.len != 0 and b.len != 0);
@@ -3838,24 +4061,26 @@ fn llsignedxor(r: []Limb, a: []const Limb, a_positive: bool, b: []const Limb, b_
     // - if the result is supposed to be negative, add 1.
 
     var i: usize = 0;
-    var a_borrow = @boolToInt(!a_positive);
-    var b_borrow = @boolToInt(!b_positive);
-    var r_carry = @boolToInt(a_positive != b_positive);
+    var a_borrow = @intFromBool(!a_positive);
+    var b_borrow = @intFromBool(!b_positive);
+    var r_carry = @intFromBool(a_positive != b_positive);
 
     while (i < b.len) : (i += 1) {
-        var a_limb: Limb = undefined;
-        a_borrow = @boolToInt(@subWithOverflow(Limb, a[i], a_borrow, &a_limb));
-
-        var b_limb: Limb = undefined;
-        b_borrow = @boolToInt(@subWithOverflow(Limb, b[i], b_borrow, &b_limb));
-
-        r[i] = a_limb ^ b_limb;
-        r_carry = @boolToInt(@addWithOverflow(Limb, r[i], r_carry, &r[i]));
+        const ov1 = @subWithOverflow(a[i], a_borrow);
+        a_borrow = ov1[1];
+        const ov2 = @subWithOverflow(b[i], b_borrow);
+        b_borrow = ov2[1];
+        const ov3 = @addWithOverflow(ov1[0] ^ ov2[0], r_carry);
+        r[i] = ov3[0];
+        r_carry = ov3[1];
     }
 
     while (i < a.len) : (i += 1) {
-        a_borrow = @boolToInt(@subWithOverflow(Limb, a[i], a_borrow, &r[i]));
-        r_carry = @boolToInt(@addWithOverflow(Limb, r[i], r_carry, &r[i]));
+        const ov1 = @subWithOverflow(a[i], a_borrow);
+        a_borrow = ov1[1];
+        const ov2 = @addWithOverflow(ov1[0], r_carry);
+        r[i] = ov2[0];
+        r_carry = ov2[1];
     }
 
     // If both inputs don't share the same sign, an extra limb is required.
@@ -3879,7 +4104,7 @@ fn llsquareBasecase(r: []Limb, x: []const Limb) void {
     assert(r.len >= 2 * x_norm.len + 1);
 
     // Compute the square of a N-limb bigint with only (N^2 + N)/2
-    // multiplications by exploting the symmetry of the coefficients around the
+    // multiplications by exploiting the symmetry of the coefficients around the
     // diagonal:
     //
     //           a   b   c *
@@ -3893,7 +4118,7 @@ fn llsquareBasecase(r: []Limb, x: []const Limb) void {
     //  - Each mixed-product term appears twice for each column,
     //  - Squares are always in the 2k (0 <= k < N) column
 
-    for (x_norm) |v, i| {
+    for (x_norm, 0..) |v, i| {
         // Accumulate all the x[i]*x[j] (with x!=j) products
         const overflow = llmulLimb(.add, r[2 * i + 1 ..], x_norm[i + 1 ..], v);
         assert(!overflow);
@@ -3902,9 +4127,9 @@ fn llsquareBasecase(r: []Limb, x: []const Limb) void {
     // Each product appears twice, multiply by 2
     llshl(r, r[0 .. 2 * x_norm.len], 1);
 
-    for (x_norm) |v, i| {
+    for (x_norm, 0..) |v, i| {
         // Compute and add the squares
-        const overflow = llmulLimb(.add, r[2 * i ..], x[i .. i + 1], v);
+        const overflow = llmulLimb(.add, r[2 * i ..], x[i..][0..1], v);
         assert(!overflow);
     }
 }
@@ -3930,25 +4155,27 @@ fn llpow(r: []Limb, a: []const Limb, b: u32, tmp_limbs: []Limb) void {
         tmp2 = tmp_limbs;
     }
 
-    mem.copy(Limb, tmp1, a);
-    mem.set(Limb, tmp1[a.len..], 0);
+    @memcpy(tmp1[0..a.len], a);
+    @memset(tmp1[a.len..], 0);
 
     // Scan the exponent as a binary number, from left to right, dropping the
     // most significant bit set.
     // Square the result if the current bit is zero, square and multiply by a if
     // it is one.
     var exp_bits = 32 - 1 - b_leading_zeros;
-    var exp = b << @intCast(u5, 1 + b_leading_zeros);
+    var exp = b << @as(u5, @intCast(1 + b_leading_zeros));
 
     var i: usize = 0;
     while (i < exp_bits) : (i += 1) {
         // Square
-        mem.set(Limb, tmp2, 0);
+        @memset(tmp2, 0);
         llsquareBasecase(tmp2, tmp1[0..llnormalize(tmp1)]);
         mem.swap([]Limb, &tmp1, &tmp2);
         // Multiply by a
-        if (@shlWithOverflow(u32, exp, 1, &exp)) {
-            mem.set(Limb, tmp2, 0);
+        const ov = @shlWithOverflow(exp, 1);
+        exp = ov[0];
+        if (ov[1] != 0) {
+            @memset(tmp2, 0);
             llmulacc(.add, null, tmp2, tmp1[0..llnormalize(tmp1)], a);
             mem.swap([]Limb, &tmp1, &tmp2);
         }
@@ -3960,9 +4187,9 @@ fn fixedIntFromSignedDoubleLimb(A: SignedDoubleLimb, storage: []Limb) Mutable {
     assert(storage.len >= 2);
 
     const A_is_positive = A >= 0;
-    const Au = @intCast(DoubleLimb, if (A < 0) -A else A);
-    storage[0] = @truncate(Limb, Au);
-    storage[1] = @truncate(Limb, Au >> limb_bits);
+    const Au = @as(DoubleLimb, @intCast(if (A < 0) -A else A));
+    storage[0] = @as(Limb, @truncate(Au));
+    storage[1] = @as(Limb, @truncate(Au >> limb_bits));
     return .{
         .limbs = storage[0..2],
         .positive = A_is_positive,

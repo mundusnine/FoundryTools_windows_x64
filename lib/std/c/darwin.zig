@@ -8,12 +8,138 @@ const iovec_const = std.os.iovec_const;
 
 pub const aarch64 = @import("darwin/aarch64.zig");
 pub const x86_64 = @import("darwin/x86_64.zig");
+pub const cssm = @import("darwin/cssm.zig");
 
 const arch_bits = switch (native_arch) {
     .aarch64 => @import("darwin/aarch64.zig"),
     .x86_64 => @import("darwin/x86_64.zig"),
     else => struct {},
 };
+
+pub const EXC_TYPES_COUNT = arch_bits.EXC_TYPES_COUNT;
+pub const THREAD_STATE_NONE = arch_bits.THREAD_STATE_NONE;
+
+pub const EXC = enum(exception_type_t) {
+    NULL = 0,
+    /// Could not access memory
+    BAD_ACCESS = 1,
+    /// Instruction failed
+    BAD_INSTRUCTION = 2,
+    /// Arithmetic exception
+    ARITHMETIC = 3,
+    /// Emulation instruction
+    EMULATION = 4,
+    /// Software generated exception
+    SOFTWARE = 5,
+    /// Trace, breakpoint, etc.
+    BREAKPOINT = 6,
+    /// System calls.
+    SYSCALL = 7,
+    /// Mach system calls.
+    MACH_SYSCALL = 8,
+    /// RPC alert
+    RPC_ALERT = 9,
+    /// Abnormal process exit
+    CRASH = 10,
+    /// Hit resource consumption limit
+    RESOURCE = 11,
+    /// Violated guarded resource protections
+    GUARD = 12,
+    /// Abnormal process exited to corpse state
+    CORPSE_NOTIFY = 13,
+};
+
+pub const EXC_SOFT_SIGNAL = 0x10003;
+
+pub const EXC_MASK_BAD_ACCESS = 1 << @intFromEnum(EXC.BAD_ACCESS);
+pub const EXC_MASK_BAD_INSTRUCTION = 1 << @intFromEnum(EXC.BAD_INSTRUCTION);
+pub const EXC_MASK_ARITHMETIC = 1 << @intFromEnum(EXC.ARITHMETIC);
+pub const EXC_MASK_EMULATION = 1 << @intFromEnum(EXC.EMULATION);
+pub const EXC_MASK_SOFTWARE = 1 << @intFromEnum(EXC.SOFTWARE);
+pub const EXC_MASK_BREAKPOINT = 1 << @intFromEnum(EXC.BREAKPOINT);
+pub const EXC_MASK_SYSCALL = 1 << @intFromEnum(EXC.SYSCALL);
+pub const EXC_MASK_MACH_SYSCALL = 1 << @intFromEnum(EXC.MACH_SYSCALL);
+pub const EXC_MASK_RPC_ALERT = 1 << @intFromEnum(EXC.RPC_ALERT);
+pub const EXC_MASK_CRASH = 1 << @intFromEnum(EXC.CRASH);
+pub const EXC_MASK_RESOURCE = 1 << @intFromEnum(EXC.RESOURCE);
+pub const EXC_MASK_GUARD = 1 << @intFromEnum(EXC.GUARD);
+pub const EXC_MASK_CORPSE_NOTIFY = 1 << @intFromEnum(EXC.CORPSE_NOTIFY);
+pub const EXC_MASK_MACHINE = arch_bits.EXC_MASK_MACHINE;
+
+pub const EXC_MASK_ALL = EXC_MASK_BAD_ACCESS |
+    EXC_MASK_BAD_INSTRUCTION |
+    EXC_MASK_ARITHMETIC |
+    EXC_MASK_EMULATION |
+    EXC_MASK_SOFTWARE |
+    EXC_MASK_BREAKPOINT |
+    EXC_MASK_SYSCALL |
+    EXC_MASK_MACH_SYSCALL |
+    EXC_MASK_RPC_ALERT |
+    EXC_MASK_RESOURCE |
+    EXC_MASK_GUARD |
+    EXC_MASK_MACHINE;
+
+/// Send a catch_exception_raise message including the identity.
+pub const EXCEPTION_DEFAULT = 1;
+/// Send a catch_exception_raise_state message including the
+/// thread state.
+pub const EXCEPTION_STATE = 2;
+/// Send a catch_exception_raise_state_identity message including
+/// the thread identity and state.
+pub const EXCEPTION_STATE_IDENTITY = 3;
+/// Send a catch_exception_raise_identity_protected message including protected task
+/// and thread identity.
+pub const EXCEPTION_IDENTITY_PROTECTED = 4;
+/// Prefer sending a catch_exception_raice_backtrace message, if applicable.
+pub const MACH_EXCEPTION_BACKTRACE_PREFERRED = 0x20000000;
+/// include additional exception specific errors, not used yet.
+pub const MACH_EXCEPTION_ERRORS = 0x40000000;
+/// Send 64-bit code and subcode in the exception header */
+pub const MACH_EXCEPTION_CODES = 0x80000000;
+
+pub const MACH_EXCEPTION_MASK = MACH_EXCEPTION_CODES |
+    MACH_EXCEPTION_ERRORS |
+    MACH_EXCEPTION_BACKTRACE_PREFERRED;
+
+pub const TASK_NULL: task_t = 0;
+pub const THREAD_NULL: thread_t = 0;
+pub const MACH_PORT_NULL: mach_port_t = 0;
+pub const MACH_MSG_TIMEOUT_NONE: mach_msg_timeout_t = 0;
+
+pub const MACH_MSG_OPTION_NONE = 0x00000000;
+
+pub const MACH_SEND_MSG = 0x00000001;
+pub const MACH_RCV_MSG = 0x00000002;
+
+pub const MACH_RCV_LARGE = 0x00000004;
+pub const MACH_RCV_LARGE_IDENTITY = 0x00000008;
+
+pub const MACH_SEND_TIMEOUT = 0x00000010;
+pub const MACH_SEND_OVERRIDE = 0x00000020;
+pub const MACH_SEND_INTERRUPT = 0x00000040;
+pub const MACH_SEND_NOTIFY = 0x00000080;
+pub const MACH_SEND_ALWAYS = 0x00010000;
+pub const MACH_SEND_FILTER_NONFATAL = 0x00010000;
+pub const MACH_SEND_TRAILER = 0x00020000;
+pub const MACH_SEND_NOIMPORTANCE = 0x00040000;
+pub const MACH_SEND_NODENAP = MACH_SEND_NOIMPORTANCE;
+pub const MACH_SEND_IMPORTANCE = 0x00080000;
+pub const MACH_SEND_SYNC_OVERRIDE = 0x00100000;
+pub const MACH_SEND_PROPAGATE_QOS = 0x00200000;
+pub const MACH_SEND_SYNC_USE_THRPRI = MACH_SEND_PROPAGATE_QOS;
+pub const MACH_SEND_KERNEL = 0x00400000;
+pub const MACH_SEND_SYNC_BOOTSTRAP_CHECKIN = 0x00800000;
+
+pub const MACH_RCV_TIMEOUT = 0x00000100;
+pub const MACH_RCV_NOTIFY = 0x00000000;
+pub const MACH_RCV_INTERRUPT = 0x00000400;
+pub const MACH_RCV_VOUCHER = 0x00000800;
+pub const MACH_RCV_OVERWRITE = 0x00000000;
+pub const MACH_RCV_GUARDED_DESC = 0x00001000;
+pub const MACH_RCV_SYNC_WAIT = 0x00004000;
+pub const MACH_RCV_SYNC_PEEK = 0x00008000;
+
+pub const MACH_MSG_STRICT_REPLY = 0x00000200;
 
 pub const ucontext_t = extern struct {
     onstack: c_int,
@@ -22,12 +148,10 @@ pub const ucontext_t = extern struct {
     link: ?*ucontext_t,
     mcsize: u64,
     mcontext: *mcontext_t,
+    __mcontext_data: mcontext_t,
 };
 
-pub const mcontext_t = extern struct {
-    es: arch_bits.exception_state,
-    ss: arch_bits.thread_state,
-};
+pub const mcontext_t = arch_bits.mcontext_t;
 
 extern "c" fn __error() *c_int;
 pub extern "c" fn NSVersionOfRunTimeLibrary(library_name: [*:0]const u8) u32;
@@ -52,13 +176,13 @@ pub extern "c" fn __getdirentries64(fd: c_int, buf_ptr: [*]u8, buf_len: usize, b
 
 const private = struct {
     extern "c" fn fstat(fd: fd_t, buf: *Stat) c_int;
-    /// On x86_64 Darwin, fstat has to be manully linked with $INODE64 suffix to
+    /// On x86_64 Darwin, fstat has to be manually linked with $INODE64 suffix to
     /// force 64bit version.
     /// Note that this is fixed on aarch64 and no longer necessary.
     extern "c" fn @"fstat$INODE64"(fd: fd_t, buf: *Stat) c_int;
 
     extern "c" fn fstatat(dirfd: fd_t, path: [*:0]const u8, stat_buf: *Stat, flags: u32) c_int;
-    /// On x86_64 Darwin, fstatat has to be manully linked with $INODE64 suffix to
+    /// On x86_64 Darwin, fstatat has to be manually linked with $INODE64 suffix to
     /// force 64bit version.
     /// Note that this is fixed on aarch64 and no longer necessary.
     extern "c" fn @"fstatat$INODE64"(dirfd: fd_t, path_name: [*:0]const u8, buf: *Stat, flags: u32) c_int;
@@ -76,47 +200,6 @@ pub extern "c" fn mach_timebase_info(tinfo: ?*mach_timebase_info_data) kern_retu
 
 pub extern "c" fn malloc_size(?*const anyopaque) usize;
 pub extern "c" fn posix_memalign(memptr: *?*anyopaque, alignment: usize, size: usize) c_int;
-
-pub const posix_spawnattr_t = *opaque {};
-pub const posix_spawn_file_actions_t = *opaque {};
-pub extern "c" fn posix_spawnattr_init(attr: *posix_spawnattr_t) c_int;
-pub extern "c" fn posix_spawnattr_destroy(attr: *posix_spawnattr_t) c_int;
-pub extern "c" fn posix_spawnattr_setflags(attr: *posix_spawnattr_t, flags: c_short) c_int;
-pub extern "c" fn posix_spawnattr_getflags(attr: *const posix_spawnattr_t, flags: *c_short) c_int;
-pub extern "c" fn posix_spawn_file_actions_init(actions: *posix_spawn_file_actions_t) c_int;
-pub extern "c" fn posix_spawn_file_actions_destroy(actions: *posix_spawn_file_actions_t) c_int;
-pub extern "c" fn posix_spawn_file_actions_addclose(actions: *posix_spawn_file_actions_t, filedes: fd_t) c_int;
-pub extern "c" fn posix_spawn_file_actions_addopen(
-    actions: *posix_spawn_file_actions_t,
-    filedes: fd_t,
-    path: [*:0]const u8,
-    oflag: c_int,
-    mode: mode_t,
-) c_int;
-pub extern "c" fn posix_spawn_file_actions_adddup2(
-    actions: *posix_spawn_file_actions_t,
-    filedes: fd_t,
-    newfiledes: fd_t,
-) c_int;
-pub extern "c" fn posix_spawn_file_actions_addinherit_np(actions: *posix_spawn_file_actions_t, filedes: fd_t) c_int;
-pub extern "c" fn posix_spawn_file_actions_addchdir_np(actions: *posix_spawn_file_actions_t, path: [*:0]const u8) c_int;
-pub extern "c" fn posix_spawn_file_actions_addfchdir_np(actions: *posix_spawn_file_actions_t, filedes: fd_t) c_int;
-pub extern "c" fn posix_spawn(
-    pid: *pid_t,
-    path: [*:0]const u8,
-    actions: ?*const posix_spawn_file_actions_t,
-    attr: ?*const posix_spawnattr_t,
-    argv: [*:null]?[*:0]const u8,
-    env: [*:null]?[*:0]const u8,
-) c_int;
-pub extern "c" fn posix_spawnp(
-    pid: *pid_t,
-    path: [*:0]const u8,
-    actions: ?*const posix_spawn_file_actions_t,
-    attr: ?*const posix_spawnattr_t,
-    argv: [*:null]?[*:0]const u8,
-    env: [*:null]?[*:0]const u8,
-) c_int;
 
 pub extern "c" fn kevent64(
     kq: c_int,
@@ -155,6 +238,11 @@ pub extern "c" fn @"close$NOCANCEL"(fd: fd_t) c_int;
 pub extern "c" fn mach_host_self() mach_port_t;
 pub extern "c" fn clock_get_time(clock_serv: clock_serv_t, cur_time: *mach_timespec_t) kern_return_t;
 
+pub const exception_type_t = c_int;
+pub const exception_data_type_t = integer_t;
+pub const exception_data_t = ?*mach_exception_data_type_t;
+pub const mach_exception_data_type_t = i64;
+pub const mach_exception_data_t = ?*mach_exception_data_type_t;
 pub const vm_map_t = mach_port_t;
 pub const vm_map_read_t = mach_port_t;
 pub const vm_region_flavor_t = c_int;
@@ -163,12 +251,114 @@ pub const vm_region_recurse_info_t = *c_int;
 pub const mach_vm_address_t = usize;
 pub const vm_offset_t = usize;
 pub const mach_vm_size_t = u64;
+pub const mach_msg_bits_t = c_uint;
+pub const mach_msg_id_t = integer_t;
 pub const mach_msg_type_number_t = natural_t;
+pub const mach_msg_type_name_t = c_uint;
+pub const mach_msg_option_t = integer_t;
+pub const mach_msg_size_t = natural_t;
+pub const mach_msg_timeout_t = natural_t;
+pub const mach_port_right_t = natural_t;
+pub const task_t = mach_port_t;
+pub const thread_port_t = task_t;
+pub const thread_t = thread_port_t;
+pub const exception_mask_t = c_uint;
+pub const exception_mask_array_t = [*]exception_mask_t;
+pub const exception_handler_t = mach_port_t;
+pub const exception_handler_array_t = [*]exception_handler_t;
+pub const exception_port_t = exception_handler_t;
+pub const exception_port_array_t = exception_handler_array_t;
+pub const exception_flavor_array_t = [*]thread_state_flavor_t;
+pub const exception_behavior_t = c_uint;
+pub const exception_behavior_array_t = [*]exception_behavior_t;
+pub const thread_state_flavor_t = c_int;
+pub const ipc_space_t = mach_port_t;
+pub const ipc_space_port_t = ipc_space_t;
+
+pub const MACH_PORT_RIGHT = enum(mach_port_right_t) {
+    SEND = 0,
+    RECEIVE = 1,
+    SEND_ONCE = 2,
+    PORT_SET = 3,
+    DEAD_NAME = 4,
+    /// Obsolete right
+    LABELH = 5,
+    /// Right not implemented
+    NUMBER = 6,
+};
+
+pub const MACH_MSG_TYPE = enum(mach_msg_type_name_t) {
+    /// Must hold receive right
+    MOVE_RECEIVE = 16,
+
+    /// Must hold send right(s)
+    MOVE_SEND = 17,
+
+    /// Must hold sendonce right
+    MOVE_SEND_ONCE = 18,
+
+    /// Must hold send right(s)
+    COPY_SEND = 19,
+
+    /// Must hold receive right
+    MAKE_SEND = 20,
+
+    /// Must hold receive right
+    MAKE_SEND_ONCE = 21,
+
+    /// NOT VALID
+    COPY_RECEIVE = 22,
+
+    /// Must hold receive right
+    DISPOSE_RECEIVE = 24,
+
+    /// Must hold send right(s)
+    DISPOSE_SEND = 25,
+
+    /// Must hold sendonce right
+    DISPOSE_SEND_ONCE = 26,
+};
 
 extern "c" var mach_task_self_: mach_port_t;
 pub fn mach_task_self() callconv(.C) mach_port_t {
     return mach_task_self_;
 }
+
+pub extern "c" fn mach_msg(
+    msg: ?*mach_msg_header_t,
+    option: mach_msg_option_t,
+    send_size: mach_msg_size_t,
+    rcv_size: mach_msg_size_t,
+    rcv_name: mach_port_name_t,
+    timeout: mach_msg_timeout_t,
+    notify: mach_port_name_t,
+) kern_return_t;
+
+pub const mach_msg_header_t = extern struct {
+    msgh_bits: mach_msg_bits_t,
+    msgh_size: mach_msg_size_t,
+    msgh_remote_port: mach_port_t,
+    msgh_local_port: mach_port_t,
+    msgh_voucher_port: mach_port_name_t,
+    msgh_id: mach_msg_id_t,
+};
+
+pub extern "c" fn task_get_exception_ports(
+    task: task_t,
+    exception_mask: exception_mask_t,
+    masks: exception_mask_array_t,
+    masks_cnt: *mach_msg_type_number_t,
+    old_handlers: exception_handler_array_t,
+    old_behaviors: exception_behavior_array_t,
+    old_flavors: exception_flavor_array_t,
+) kern_return_t;
+pub extern "c" fn task_set_exception_ports(
+    task: task_t,
+    exception_mask: exception_mask_t,
+    new_port: mach_port_t,
+    behavior: exception_behavior_t,
+    new_flavor: thread_state_flavor_t,
+) kern_return_t;
 
 pub const task_read_t = mach_port_t;
 
@@ -176,6 +366,7 @@ pub extern "c" fn task_resume(target_task: task_read_t) kern_return_t;
 pub extern "c" fn task_suspend(target_task: task_read_t) kern_return_t;
 
 pub extern "c" fn task_for_pid(target_tport: mach_port_name_t, pid: pid_t, t: *mach_port_name_t) kern_return_t;
+pub extern "c" fn pid_for_task(target_tport: mach_port_name_t, pid: *pid_t) kern_return_t;
 pub extern "c" fn mach_vm_read(
     target_task: vm_map_read_t,
     address: mach_vm_address_t,
@@ -241,6 +432,10 @@ pub const VM_REGION_SUBMAP_SHORT_INFO_COUNT_64: mach_msg_type_number_t = @sizeOf
 pub const VM_REGION_BASIC_INFO_COUNT: mach_msg_type_number_t = @sizeOf(vm_region_basic_info_64) / @sizeOf(c_int);
 pub const VM_REGION_EXTENDED_INFO_COUNT: mach_msg_type_number_t = @sizeOf(vm_region_extended_info) / @sizeOf(natural_t);
 pub const VM_REGION_TOP_INFO_COUNT: mach_msg_type_number_t = @sizeOf(vm_region_top_info) / @sizeOf(natural_t);
+
+pub fn VM_MAKE_TAG(tag: u8) u32 {
+    return @as(u32, tag) << 24;
+}
 
 pub const vm_region_basic_info_64 = extern struct {
     protection: vm_prot_t,
@@ -343,7 +538,7 @@ pub const vm_region_submap_short_info_64 = extern struct {
 
 pub const thread_act_t = mach_port_t;
 pub const thread_state_t = *natural_t;
-pub const mach_port_array_t = *mach_port_t;
+pub const mach_port_array_t = [*]mach_port_t;
 
 pub extern "c" fn task_threads(
     target_task: mach_port_t,
@@ -372,6 +567,9 @@ pub extern "c" fn thread_resume(thread: thread_act_t) kern_return_t;
 
 pub const THREAD_BASIC_INFO = 3;
 pub const THREAD_BASIC_INFO_COUNT: mach_msg_type_number_t = @sizeOf(thread_basic_info) / @sizeOf(natural_t);
+
+pub const THREAD_IDENTIFIER_INFO = 4;
+pub const THREAD_IDENTIFIER_INFO_COUNT: mach_msg_type_number_t = @sizeOf(thread_identifier_info) / @sizeOf(natural_t);
 
 pub const thread_flavor_t = natural_t;
 pub const thread_info_t = *integer_t;
@@ -402,6 +600,17 @@ pub const thread_basic_info = extern struct {
     suspend_count: integer_t,
     // number of seconds that thread has been sleeping
     sleep_time: integer_t,
+};
+
+pub const thread_identifier_info = extern struct {
+    /// System-wide unique 64-bit thread id
+    thread_id: u64,
+
+    /// Handle to be used by libproc
+    thread_handle: u64,
+
+    /// libdispatch queue address
+    dispatch_qaddr: u64,
 };
 
 /// Cachability
@@ -506,7 +715,18 @@ pub extern "c" fn mach_vm_protect(
     new_protection: vm_prot_t,
 ) kern_return_t;
 
-pub extern "c" fn mach_port_deallocate(target_tport: mach_port_name_t, task: mach_port_name_t) kern_return_t;
+pub extern "c" fn mach_port_allocate(
+    task: ipc_space_t,
+    right: mach_port_right_t,
+    name: *mach_port_name_t,
+) kern_return_t;
+pub extern "c" fn mach_port_deallocate(task: ipc_space_t, name: mach_port_name_t) kern_return_t;
+pub extern "c" fn mach_port_insert_right(
+    task: ipc_space_t,
+    name: mach_port_name_t,
+    poly: mach_port_t,
+    poly_poly: mach_msg_type_name_t,
+) kern_return_t;
 
 pub extern "c" fn task_info(
     target_task: task_name_t,
@@ -514,6 +734,30 @@ pub extern "c" fn task_info(
     task_info_out: task_info_t,
     task_info_outCnt: *mach_msg_type_number_t,
 ) kern_return_t;
+
+pub const mach_task_basic_info = extern struct {
+    /// Virtual memory size (bytes)
+    virtual_size: mach_vm_size_t,
+
+    /// Resident memory size (bytes)
+    resident_size: mach_vm_size_t,
+
+    /// Total user run time for terminated threads
+    user_time: time_value_t,
+
+    /// Total system run time for terminated threads
+    system_time: time_value_t,
+
+    /// Default policy for new threads
+    policy: policy_t,
+
+    /// Suspend count for task
+    suspend_count: mach_vm_size_t,
+};
+
+pub const MACH_TASK_BASIC_INFO = 20;
+pub const MACH_TASK_BASIC_INFO_COUNT: mach_msg_type_number_t = @sizeOf(mach_task_basic_info) / @sizeOf(natural_t);
+
 pub extern "c" fn _host_page_size(task: mach_port_t, size: *vm_size_t) kern_return_t;
 pub extern "c" fn vm_deallocate(target_task: vm_map_t, address: vm_address_t, size: vm_size_t) kern_return_t;
 pub extern "c" fn vm_machine_attribute(
@@ -607,6 +851,21 @@ pub const EAI = enum(c_int) {
 
 pub const EAI_MAX = 15;
 
+pub const qos_class_t = enum(c_uint) {
+    /// highest priority QOS class for critical tasks
+    QOS_CLASS_USER_INTERACTIVE = 0x21,
+    /// slightly more moderate priority QOS class
+    QOS_CLASS_USER_INITIATED = 0x19,
+    /// default QOS class when none is set
+    QOS_CLASS_DEFAULT = 0x15,
+    /// more energy efficient QOS class than default
+    QOS_CLASS_UTILITY = 0x11,
+    /// QOS class more appropriate for background tasks
+    QOS_CLASS_BACKGROUND = 0x09,
+    /// QOS class as a return value
+    QOS_CLASS_UNSPECIFIED = 0x00,
+};
+
 pub const pthread_mutex_t = extern struct {
     __sig: c_long = 0x32AAABA7,
     __opaque: [__PTHREAD_MUTEX_SIZE__]u8 = [_]u8{0} ** __PTHREAD_MUTEX_SIZE__,
@@ -631,6 +890,10 @@ pub const pthread_attr_t = extern struct {
 pub extern "c" fn pthread_threadid_np(thread: ?std.c.pthread_t, thread_id: *u64) c_int;
 pub extern "c" fn pthread_setname_np(name: [*:0]const u8) E;
 pub extern "c" fn pthread_getname_np(thread: std.c.pthread_t, name: [*:0]u8, len: usize) E;
+pub extern "c" fn pthread_attr_set_qos_class_np(attr: *pthread_attr_t, qos_class: qos_class_t, relative_priority: c_int) c_int;
+pub extern "c" fn pthread_attr_get_qos_class_np(attr: *pthread_attr_t, qos_class: *qos_class_t, relative_priority: *c_int) c_int;
+pub extern "c" fn pthread_set_qos_class_self_np(qos_class: qos_class_t, relative_priority: c_int) c_int;
+pub extern "c" fn pthread_get_qos_class_np(pthread: std.c.pthread_t, qos_class: *qos_class_t, relative_priority: *c_int) c_int;
 
 pub extern "c" fn arc4random_buf(buf: [*]u8, len: usize) void;
 
@@ -725,7 +988,16 @@ pub const sockaddr = extern struct {
     data: [14]u8,
 
     pub const SS_MAXSIZE = 128;
-    pub const storage = std.x.os.Socket.Address.Native.Storage;
+    pub const storage = extern struct {
+        len: u8 align(8),
+        family: sa_family_t,
+        padding: [126]u8 = undefined,
+
+        comptime {
+            assert(@sizeOf(storage) == SS_MAXSIZE);
+            assert(@alignOf(storage) == 8);
+        }
+    };
     pub const in = extern struct {
         len: u8 = @sizeOf(in),
         family: sa_family_t = AF.INET,
@@ -821,17 +1093,17 @@ pub const sigset_t = u32;
 pub const empty_sigset: sigset_t = 0;
 
 pub const SIG = struct {
-    pub const ERR = @intToPtr(?Sigaction.handler_fn, maxInt(usize));
-    pub const DFL = @intToPtr(?Sigaction.handler_fn, 0);
-    pub const IGN = @intToPtr(?Sigaction.handler_fn, 1);
-    pub const HOLD = @intToPtr(?Sigaction.handler_fn, 5);
+    pub const ERR = @as(?Sigaction.handler_fn, @ptrFromInt(maxInt(usize)));
+    pub const DFL = @as(?Sigaction.handler_fn, @ptrFromInt(0));
+    pub const IGN = @as(?Sigaction.handler_fn, @ptrFromInt(1));
+    pub const HOLD = @as(?Sigaction.handler_fn, @ptrFromInt(5));
 
     /// block specified signal set
-    pub const _BLOCK = 1;
+    pub const BLOCK = 1;
     /// unblock specified signal set
-    pub const _UNBLOCK = 2;
+    pub const UNBLOCK = 2;
     /// set specified signal set
-    pub const _SETMASK = 3;
+    pub const SETMASK = 3;
     /// hangup
     pub const HUP = 1;
     /// interrupt
@@ -918,8 +1190,8 @@ pub const siginfo_t = extern struct {
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with function name.
 pub const Sigaction = extern struct {
-    pub const handler_fn = std.meta.FnPtr(fn (c_int) align(1) callconv(.C) void);
-    pub const sigaction_fn = std.meta.FnPtr(fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void);
+    pub const handler_fn = *const fn (c_int) align(1) callconv(.C) void;
+    pub const sigaction_fn = *const fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
 
     handler: extern union {
         handler: ?handler_fn,
@@ -1055,7 +1327,7 @@ pub const MAP = struct {
     pub const NOCACHE = 0x0400;
     /// don't reserve needed swap area
     pub const NORESERVE = 0x0040;
-    pub const FAILED = @intToPtr(*anyopaque, maxInt(usize));
+    pub const FAILED = @as(*anyopaque, @ptrFromInt(maxInt(usize)));
 };
 
 pub const MSF = struct {
@@ -1523,7 +1795,7 @@ pub const W = struct {
     pub const UNTRACED = 0x00000002;
 
     pub fn EXITSTATUS(x: u32) u8 {
-        return @intCast(u8, x >> 8);
+        return @as(u8, @intCast(x >> 8));
     }
     pub fn TERMSIG(x: u32) u32 {
         return status(x);
@@ -1884,12 +2156,8 @@ pub const E = enum(u16) {
     _,
 };
 
-pub fn getKernError(err: kern_return_t) KernE {
-    return @intToEnum(KernE, @truncate(u8, @intCast(usize, err)));
-}
-
 /// Kernel return values
-pub const KernE = enum(u8) {
+pub const KernE = enum(u32) {
     SUCCESS = 0,
 
     /// Specified address is not currently valid
@@ -2108,6 +2376,104 @@ pub const KernE = enum(u8) {
     _,
 };
 
+pub const mach_msg_return_t = kern_return_t;
+
+pub fn getMachMsgError(err: mach_msg_return_t) MachMsgE {
+    return @as(MachMsgE, @enumFromInt(@as(u32, @truncate(@as(usize, @intCast(err))))));
+}
+
+/// All special error code bits defined below.
+pub const MACH_MSG_MASK: u32 = 0x3e00;
+/// No room in IPC name space for another capability name.
+pub const MACH_MSG_IPC_SPACE: u32 = 0x2000;
+/// No room in VM address space for out-of-line memory.
+pub const MACH_MSG_VM_SPACE: u32 = 0x1000;
+/// Kernel resource shortage handling out-of-line memory.
+pub const MACH_MSG_IPC_KERNEL: u32 = 0x800;
+/// Kernel resource shortage handling an IPC capability.
+pub const MACH_MSG_VM_KERNEL: u32 = 0x400;
+
+/// Mach msg return values
+pub const MachMsgE = enum(u32) {
+    SUCCESS = 0x00000000,
+
+    /// Thread is waiting to send.  (Internal use only.)
+    SEND_IN_PROGRESS = 0x10000001,
+    /// Bogus in-line data.
+    SEND_INVALID_DATA = 0x10000002,
+    /// Bogus destination port.
+    SEND_INVALID_DEST = 0x10000003,
+    ///  Message not sent before timeout expired.
+    SEND_TIMED_OUT = 0x10000004,
+    ///  Bogus voucher port.
+    SEND_INVALID_VOUCHER = 0x10000005,
+    ///  Software interrupt.
+    SEND_INTERRUPTED = 0x10000007,
+    ///  Data doesn't contain a complete message.
+    SEND_MSG_TOO_SMALL = 0x10000008,
+    ///  Bogus reply port.
+    SEND_INVALID_REPLY = 0x10000009,
+    ///  Bogus port rights in the message body.
+    SEND_INVALID_RIGHT = 0x1000000a,
+    ///  Bogus notify port argument.
+    SEND_INVALID_NOTIFY = 0x1000000b,
+    ///  Invalid out-of-line memory pointer.
+    SEND_INVALID_MEMORY = 0x1000000c,
+    ///  No message buffer is available.
+    SEND_NO_BUFFER = 0x1000000d,
+    ///  Send is too large for port
+    SEND_TOO_LARGE = 0x1000000e,
+    ///  Invalid msg-type specification.
+    SEND_INVALID_TYPE = 0x1000000f,
+    ///  A field in the header had a bad value.
+    SEND_INVALID_HEADER = 0x10000010,
+    ///  The trailer to be sent does not match kernel format.
+    SEND_INVALID_TRAILER = 0x10000011,
+    ///  The sending thread context did not match the context on the dest port
+    SEND_INVALID_CONTEXT = 0x10000012,
+    ///  compatibility: no longer a returned error
+    SEND_INVALID_RT_OOL_SIZE = 0x10000015,
+    ///  The destination port doesn't accept ports in body
+    SEND_NO_GRANT_DEST = 0x10000016,
+    ///  Message send was rejected by message filter
+    SEND_MSG_FILTERED = 0x10000017,
+
+    ///  Thread is waiting for receive.  (Internal use only.)
+    RCV_IN_PROGRESS = 0x10004001,
+    ///  Bogus name for receive port/port-set.
+    RCV_INVALID_NAME = 0x10004002,
+    ///  Didn't get a message within the timeout value.
+    RCV_TIMED_OUT = 0x10004003,
+    ///  Message buffer is not large enough for inline data.
+    RCV_TOO_LARGE = 0x10004004,
+    ///  Software interrupt.
+    RCV_INTERRUPTED = 0x10004005,
+    ///  compatibility: no longer a returned error
+    RCV_PORT_CHANGED = 0x10004006,
+    ///  Bogus notify port argument.
+    RCV_INVALID_NOTIFY = 0x10004007,
+    ///  Bogus message buffer for inline data.
+    RCV_INVALID_DATA = 0x10004008,
+    ///  Port/set was sent away/died during receive.
+    RCV_PORT_DIED = 0x10004009,
+    ///  compatibility: no longer a returned error
+    RCV_IN_SET = 0x1000400a,
+    ///  Error receiving message header.  See special bits.
+    RCV_HEADER_ERROR = 0x1000400b,
+    ///  Error receiving message body.  See special bits.
+    RCV_BODY_ERROR = 0x1000400c,
+    ///  Invalid msg-type specification in scatter list.
+    RCV_INVALID_TYPE = 0x1000400d,
+    ///  Out-of-line overwrite region is not large enough
+    RCV_SCATTER_SMALL = 0x1000400e,
+    ///  trailer type or number of trailer elements not supported
+    RCV_INVALID_TRAILER = 0x1000400f,
+    ///  Waiting for receive with timeout. (Internal use only.)
+    RCV_IN_PROGRESS_TIMED = 0x10004011,
+    ///  invalid reply port used in a STRICT_REPLY message
+    RCV_INVALID_REPLY = 0x10004012,
+};
+
 pub const SIGSTKSZ = 131072;
 pub const MINSIGSTKSZ = 32768;
 
@@ -2215,10 +2581,10 @@ pub const RTLD = struct {
     pub const NODELETE = 0x80;
     pub const FIRST = 0x100;
 
-    pub const NEXT = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -1)));
-    pub const DEFAULT = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -2)));
-    pub const SELF = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -3)));
-    pub const MAIN_ONLY = @intToPtr(*anyopaque, @bitCast(usize, @as(isize, -5)));
+    pub const NEXT = @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -1)))));
+    pub const DEFAULT = @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -2)))));
+    pub const SELF = @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -3)))));
+    pub const MAIN_ONLY = @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -5)))));
 };
 
 pub const F = struct {
@@ -2275,7 +2641,7 @@ pub const F = struct {
     pub const ADDSIGS = 59;
     /// add signature from same file (used by dyld for shared libs)
     pub const ADDFILESIGS = 61;
-    /// used in conjunction with F.NOCACHE to indicate that DIRECT, synchonous writes
+    /// used in conjunction with F.NOCACHE to indicate that DIRECT, synchronous writes
     /// should not be used (i.e. its ok to temporaily create cached pages)
     pub const NODIRECT = 62;
     ///Get the protection class of a file from the EA, returns int
@@ -2665,25 +3031,816 @@ pub const CPUFAMILY = enum(u32) {
     _,
 };
 
-pub const POSIX_SPAWN_RESETIDS = 0x0001;
-pub const POSIX_SPAWN_SETPGROUP = 0x0002;
-pub const POSIX_SPAWN_SETSIGDEF = 0x0004;
-pub const POSIX_SPAWN_SETSIGMASK = 0x0008;
-pub const POSIX_SPAWN_SETEXEC = 0x0040;
-pub const POSIX_SPAWN_START_SUSPENDED = 0x0080;
-pub const _POSIX_SPAWN_DISABLE_ASLR = 0x0100;
-pub const POSIX_SPAWN_SETSID = 0x0400;
-pub const _POSIX_SPAWN_RESLIDE = 0x0800;
-pub const POSIX_SPAWN_CLOEXEC_DEFAULT = 0x4000;
-
-pub const PT_TRACE_ME = 0;
-pub const PT_CONTINUE = 7;
-pub const PT_KILL = 8;
-pub const PT_STEP = 9;
-pub const PT_DETACH = 11;
-pub const PT_ATTACHEXC = 14;
-pub const PT_DENY_ATTACH = 31;
+pub const PT = struct {
+    pub const TRACE_ME = 0;
+    pub const READ_I = 1;
+    pub const READ_D = 2;
+    pub const READ_U = 3;
+    pub const WRITE_I = 4;
+    pub const WRITE_D = 5;
+    pub const WRITE_U = 6;
+    pub const CONTINUE = 7;
+    pub const KILL = 8;
+    pub const STEP = 9;
+    pub const DETACH = 11;
+    pub const SIGEXC = 12;
+    pub const THUPDATE = 13;
+    pub const ATTACHEXC = 14;
+    pub const FORCEQUOTA = 30;
+    pub const DENY_ATTACH = 31;
+};
 
 pub const caddr_t = ?[*]u8;
 
 pub extern "c" fn ptrace(request: c_int, pid: pid_t, addr: caddr_t, data: c_int) c_int;
+
+pub const POSIX_SPAWN = struct {
+    pub const RESETIDS = 0x0001;
+    pub const SETPGROUP = 0x0002;
+    pub const SETSIGDEF = 0x0004;
+    pub const SETSIGMASK = 0x0008;
+    pub const SETEXEC = 0x0040;
+    pub const START_SUSPENDED = 0x0080;
+    pub const DISABLE_ASLR = 0x0100;
+    pub const SETSID = 0x0400;
+    pub const RESLIDE = 0x0800;
+    pub const CLOEXEC_DEFAULT = 0x4000;
+};
+
+pub const posix_spawnattr_t = *opaque {};
+pub const posix_spawn_file_actions_t = *opaque {};
+pub extern "c" fn posix_spawnattr_init(attr: *posix_spawnattr_t) c_int;
+pub extern "c" fn posix_spawnattr_destroy(attr: *posix_spawnattr_t) c_int;
+pub extern "c" fn posix_spawnattr_setflags(attr: *posix_spawnattr_t, flags: c_short) c_int;
+pub extern "c" fn posix_spawnattr_getflags(attr: *const posix_spawnattr_t, flags: *c_short) c_int;
+pub extern "c" fn posix_spawn_file_actions_init(actions: *posix_spawn_file_actions_t) c_int;
+pub extern "c" fn posix_spawn_file_actions_destroy(actions: *posix_spawn_file_actions_t) c_int;
+pub extern "c" fn posix_spawn_file_actions_addclose(actions: *posix_spawn_file_actions_t, filedes: fd_t) c_int;
+pub extern "c" fn posix_spawn_file_actions_addopen(
+    actions: *posix_spawn_file_actions_t,
+    filedes: fd_t,
+    path: [*:0]const u8,
+    oflag: c_int,
+    mode: mode_t,
+) c_int;
+pub extern "c" fn posix_spawn_file_actions_adddup2(
+    actions: *posix_spawn_file_actions_t,
+    filedes: fd_t,
+    newfiledes: fd_t,
+) c_int;
+pub extern "c" fn posix_spawn_file_actions_addinherit_np(actions: *posix_spawn_file_actions_t, filedes: fd_t) c_int;
+pub extern "c" fn posix_spawn_file_actions_addchdir_np(actions: *posix_spawn_file_actions_t, path: [*:0]const u8) c_int;
+pub extern "c" fn posix_spawn_file_actions_addfchdir_np(actions: *posix_spawn_file_actions_t, filedes: fd_t) c_int;
+pub extern "c" fn posix_spawn(
+    pid: *pid_t,
+    path: [*:0]const u8,
+    actions: ?*const posix_spawn_file_actions_t,
+    attr: ?*const posix_spawnattr_t,
+    argv: [*:null]?[*:0]const u8,
+    env: [*:null]?[*:0]const u8,
+) c_int;
+pub extern "c" fn posix_spawnp(
+    pid: *pid_t,
+    path: [*:0]const u8,
+    actions: ?*const posix_spawn_file_actions_t,
+    attr: ?*const posix_spawnattr_t,
+    argv: [*:null]?[*:0]const u8,
+    env: [*:null]?[*:0]const u8,
+) c_int;
+
+pub const PosixSpawn = struct {
+    const errno = std.os.errno;
+    const unexpectedErrno = std.os.unexpectedErrno;
+
+    pub const Error = error{
+        SystemResources,
+        InvalidFileDescriptor,
+        NameTooLong,
+        TooBig,
+        PermissionDenied,
+        InputOutput,
+        FileSystem,
+        FileNotFound,
+        InvalidExe,
+        NotDir,
+        FileBusy,
+        /// Returned when the child fails to execute either in the pre-exec() initialization step, or
+        /// when exec(3) is invoked.
+        ChildExecFailed,
+    } || std.os.UnexpectedError;
+
+    pub const Attr = struct {
+        attr: posix_spawnattr_t,
+
+        pub fn init() Error!Attr {
+            var attr: posix_spawnattr_t = undefined;
+            switch (errno(posix_spawnattr_init(&attr))) {
+                .SUCCESS => return Attr{ .attr = attr },
+                .NOMEM => return error.SystemResources,
+                .INVAL => unreachable,
+                else => |err| return unexpectedErrno(err),
+            }
+        }
+
+        pub fn deinit(self: *Attr) void {
+            defer self.* = undefined;
+            switch (errno(posix_spawnattr_destroy(&self.attr))) {
+                .SUCCESS => return,
+                .INVAL => unreachable, // Invalid parameters.
+                else => unreachable,
+            }
+        }
+
+        pub fn get(self: Attr) Error!u16 {
+            var flags: c_short = undefined;
+            switch (errno(posix_spawnattr_getflags(&self.attr, &flags))) {
+                .SUCCESS => return @as(u16, @bitCast(flags)),
+                .INVAL => unreachable,
+                else => |err| return unexpectedErrno(err),
+            }
+        }
+
+        pub fn set(self: *Attr, flags: u16) Error!void {
+            switch (errno(posix_spawnattr_setflags(&self.attr, @as(c_short, @bitCast(flags))))) {
+                .SUCCESS => return,
+                .INVAL => unreachable,
+                else => |err| return unexpectedErrno(err),
+            }
+        }
+    };
+
+    pub const Actions = struct {
+        actions: posix_spawn_file_actions_t,
+
+        pub fn init() Error!Actions {
+            var actions: posix_spawn_file_actions_t = undefined;
+            switch (errno(posix_spawn_file_actions_init(&actions))) {
+                .SUCCESS => return Actions{ .actions = actions },
+                .NOMEM => return error.SystemResources,
+                .INVAL => unreachable,
+                else => |err| return unexpectedErrno(err),
+            }
+        }
+
+        pub fn deinit(self: *Actions) void {
+            defer self.* = undefined;
+            switch (errno(posix_spawn_file_actions_destroy(&self.actions))) {
+                .SUCCESS => return,
+                .INVAL => unreachable, // Invalid parameters.
+                else => unreachable,
+            }
+        }
+
+        pub fn open(self: *Actions, fd: fd_t, path: []const u8, flags: u32, mode: mode_t) Error!void {
+            const posix_path = try std.os.toPosixPath(path);
+            return self.openZ(fd, &posix_path, flags, mode);
+        }
+
+        pub fn openZ(self: *Actions, fd: fd_t, path: [*:0]const u8, flags: u32, mode: mode_t) Error!void {
+            switch (errno(posix_spawn_file_actions_addopen(&self.actions, fd, path, @as(c_int, @bitCast(flags)), mode))) {
+                .SUCCESS => return,
+                .BADF => return error.InvalidFileDescriptor,
+                .NOMEM => return error.SystemResources,
+                .NAMETOOLONG => return error.NameTooLong,
+                .INVAL => unreachable, // the value of file actions is invalid
+                else => |err| return unexpectedErrno(err),
+            }
+        }
+
+        pub fn close(self: *Actions, fd: fd_t) Error!void {
+            switch (errno(posix_spawn_file_actions_addclose(&self.actions, fd))) {
+                .SUCCESS => return,
+                .BADF => return error.InvalidFileDescriptor,
+                .NOMEM => return error.SystemResources,
+                .INVAL => unreachable, // the value of file actions is invalid
+                .NAMETOOLONG => unreachable,
+                else => |err| return unexpectedErrno(err),
+            }
+        }
+
+        pub fn dup2(self: *Actions, fd: fd_t, newfd: fd_t) Error!void {
+            switch (errno(posix_spawn_file_actions_adddup2(&self.actions, fd, newfd))) {
+                .SUCCESS => return,
+                .BADF => return error.InvalidFileDescriptor,
+                .NOMEM => return error.SystemResources,
+                .INVAL => unreachable, // the value of file actions is invalid
+                .NAMETOOLONG => unreachable,
+                else => |err| return unexpectedErrno(err),
+            }
+        }
+
+        pub fn inherit(self: *Actions, fd: fd_t) Error!void {
+            switch (errno(posix_spawn_file_actions_addinherit_np(&self.actions, fd))) {
+                .SUCCESS => return,
+                .BADF => return error.InvalidFileDescriptor,
+                .NOMEM => return error.SystemResources,
+                .INVAL => unreachable, // the value of file actions is invalid
+                .NAMETOOLONG => unreachable,
+                else => |err| return unexpectedErrno(err),
+            }
+        }
+
+        pub fn chdir(self: *Actions, path: []const u8) Error!void {
+            const posix_path = try std.os.toPosixPath(path);
+            return self.chdirZ(&posix_path);
+        }
+
+        pub fn chdirZ(self: *Actions, path: [*:0]const u8) Error!void {
+            switch (errno(posix_spawn_file_actions_addchdir_np(&self.actions, path))) {
+                .SUCCESS => return,
+                .NOMEM => return error.SystemResources,
+                .NAMETOOLONG => return error.NameTooLong,
+                .BADF => unreachable,
+                .INVAL => unreachable, // the value of file actions is invalid
+                else => |err| return unexpectedErrno(err),
+            }
+        }
+
+        pub fn fchdir(self: *Actions, fd: fd_t) Error!void {
+            switch (errno(posix_spawn_file_actions_addfchdir_np(&self.actions, fd))) {
+                .SUCCESS => return,
+                .BADF => return error.InvalidFileDescriptor,
+                .NOMEM => return error.SystemResources,
+                .INVAL => unreachable, // the value of file actions is invalid
+                .NAMETOOLONG => unreachable,
+                else => |err| return unexpectedErrno(err),
+            }
+        }
+    };
+
+    pub fn spawn(
+        path: []const u8,
+        actions: ?Actions,
+        attr: ?Attr,
+        argv: [*:null]?[*:0]const u8,
+        envp: [*:null]?[*:0]const u8,
+    ) Error!pid_t {
+        const posix_path = try std.os.toPosixPath(path);
+        return spawnZ(&posix_path, actions, attr, argv, envp);
+    }
+
+    pub fn spawnZ(
+        path: [*:0]const u8,
+        actions: ?Actions,
+        attr: ?Attr,
+        argv: [*:null]?[*:0]const u8,
+        envp: [*:null]?[*:0]const u8,
+    ) Error!pid_t {
+        var pid: pid_t = undefined;
+        switch (errno(posix_spawn(
+            &pid,
+            path,
+            if (actions) |a| &a.actions else null,
+            if (attr) |a| &a.attr else null,
+            argv,
+            envp,
+        ))) {
+            .SUCCESS => return pid,
+            .@"2BIG" => return error.TooBig,
+            .NOMEM => return error.SystemResources,
+            .BADF => return error.InvalidFileDescriptor,
+            .ACCES => return error.PermissionDenied,
+            .IO => return error.InputOutput,
+            .LOOP => return error.FileSystem,
+            .NAMETOOLONG => return error.NameTooLong,
+            .NOENT => return error.FileNotFound,
+            .NOEXEC => return error.InvalidExe,
+            .NOTDIR => return error.NotDir,
+            .TXTBSY => return error.FileBusy,
+            .BADARCH => return error.InvalidExe,
+            .BADEXEC => return error.InvalidExe,
+            .FAULT => unreachable,
+            .INVAL => unreachable,
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+
+    pub fn waitpid(pid: pid_t, flags: u32) Error!std.os.WaitPidResult {
+        var status: c_int = undefined;
+        while (true) {
+            const rc = waitpid(pid, &status, @as(c_int, @intCast(flags)));
+            switch (errno(rc)) {
+                .SUCCESS => return std.os.WaitPidResult{
+                    .pid = @as(pid_t, @intCast(rc)),
+                    .status = @as(u32, @bitCast(status)),
+                },
+                .INTR => continue,
+                .CHILD => return error.ChildExecFailed,
+                .INVAL => unreachable, // Invalid flags.
+                else => unreachable,
+            }
+        }
+    }
+};
+
+pub fn getKernError(err: kern_return_t) KernE {
+    return @as(KernE, @enumFromInt(@as(u32, @truncate(@as(usize, @intCast(err))))));
+}
+
+pub fn unexpectedKernError(err: KernE) std.os.UnexpectedError {
+    if (std.os.unexpected_error_tracing) {
+        std.debug.print("unexpected error: {d}\n", .{@intFromEnum(err)});
+        std.debug.dumpCurrentStackTrace(null);
+    }
+    return error.Unexpected;
+}
+
+pub const MachError = error{
+    /// Not enough permissions held to perform the requested kernel
+    /// call.
+    PermissionDenied,
+} || std.os.UnexpectedError;
+
+pub const MachTask = extern struct {
+    port: mach_port_name_t,
+
+    pub fn isValid(self: MachTask) bool {
+        return self.port != TASK_NULL;
+    }
+
+    pub fn pidForTask(self: MachTask) MachError!std.os.pid_t {
+        var pid: std.os.pid_t = undefined;
+        switch (getKernError(pid_for_task(self.port, &pid))) {
+            .SUCCESS => return pid,
+            .FAILURE => return error.PermissionDenied,
+            else => |err| return unexpectedKernError(err),
+        }
+    }
+
+    pub fn allocatePort(self: MachTask, right: MACH_PORT_RIGHT) MachError!MachTask {
+        var out_port: mach_port_name_t = undefined;
+        switch (getKernError(mach_port_allocate(
+            self.port,
+            @intFromEnum(right),
+            &out_port,
+        ))) {
+            .SUCCESS => return .{ .port = out_port },
+            .FAILURE => return error.PermissionDenied,
+            else => |err| return unexpectedKernError(err),
+        }
+    }
+
+    pub fn deallocatePort(self: MachTask, port: MachTask) void {
+        _ = getKernError(mach_port_deallocate(self.port, port.port));
+    }
+
+    pub fn insertRight(self: MachTask, port: MachTask, msg: MACH_MSG_TYPE) !void {
+        switch (getKernError(mach_port_insert_right(
+            self.port,
+            port.port,
+            port.port,
+            @intFromEnum(msg),
+        ))) {
+            .SUCCESS => return,
+            .FAILURE => return error.PermissionDenied,
+            else => |err| return unexpectedKernError(err),
+        }
+    }
+
+    pub const PortInfo = struct {
+        mask: exception_mask_t,
+        masks: [EXC_TYPES_COUNT]exception_mask_t,
+        ports: [EXC_TYPES_COUNT]mach_port_t,
+        behaviors: [EXC_TYPES_COUNT]exception_behavior_t,
+        flavors: [EXC_TYPES_COUNT]thread_state_flavor_t,
+        count: mach_msg_type_number_t,
+    };
+
+    pub fn getExceptionPorts(self: MachTask, mask: exception_mask_t) !PortInfo {
+        var info = PortInfo{
+            .mask = mask,
+            .masks = undefined,
+            .ports = undefined,
+            .behaviors = undefined,
+            .flavors = undefined,
+            .count = 0,
+        };
+        info.count = info.ports.len / @sizeOf(mach_port_t);
+
+        switch (getKernError(task_get_exception_ports(
+            self.port,
+            info.mask,
+            &info.masks,
+            &info.count,
+            &info.ports,
+            &info.behaviors,
+            &info.flavors,
+        ))) {
+            .SUCCESS => return info,
+            .FAILURE => return error.PermissionDenied,
+            else => |err| return unexpectedKernError(err),
+        }
+    }
+
+    pub fn setExceptionPorts(
+        self: MachTask,
+        mask: exception_mask_t,
+        new_port: MachTask,
+        behavior: exception_behavior_t,
+        new_flavor: thread_state_flavor_t,
+    ) !void {
+        switch (getKernError(task_set_exception_ports(
+            self.port,
+            mask,
+            new_port.port,
+            behavior,
+            new_flavor,
+        ))) {
+            .SUCCESS => return,
+            .FAILURE => return error.PermissionDenied,
+            else => |err| return unexpectedKernError(err),
+        }
+    }
+
+    pub const RegionInfo = struct {
+        pub const Tag = enum {
+            basic,
+            extended,
+            top,
+        };
+
+        base_addr: u64,
+        tag: Tag,
+        info: union {
+            basic: vm_region_basic_info_64,
+            extended: vm_region_extended_info,
+            top: vm_region_top_info,
+        },
+    };
+
+    pub fn getRegionInfo(
+        task: MachTask,
+        address: u64,
+        len: usize,
+        tag: RegionInfo.Tag,
+    ) MachError!RegionInfo {
+        var info: RegionInfo = .{
+            .base_addr = address,
+            .tag = tag,
+            .info = undefined,
+        };
+        switch (tag) {
+            .basic => info.info = .{ .basic = undefined },
+            .extended => info.info = .{ .extended = undefined },
+            .top => info.info = .{ .top = undefined },
+        }
+        var base_len: mach_vm_size_t = if (len == 1) 2 else len;
+        var objname: mach_port_t = undefined;
+        var count: mach_msg_type_number_t = switch (tag) {
+            .basic => VM_REGION_BASIC_INFO_COUNT,
+            .extended => VM_REGION_EXTENDED_INFO_COUNT,
+            .top => VM_REGION_TOP_INFO_COUNT,
+        };
+        switch (getKernError(mach_vm_region(
+            task.port,
+            &info.base_addr,
+            &base_len,
+            switch (tag) {
+                .basic => VM_REGION_BASIC_INFO_64,
+                .extended => VM_REGION_EXTENDED_INFO,
+                .top => VM_REGION_TOP_INFO,
+            },
+            switch (tag) {
+                .basic => @as(vm_region_info_t, @ptrCast(&info.info.basic)),
+                .extended => @as(vm_region_info_t, @ptrCast(&info.info.extended)),
+                .top => @as(vm_region_info_t, @ptrCast(&info.info.top)),
+            },
+            &count,
+            &objname,
+        ))) {
+            .SUCCESS => return info,
+            .FAILURE => return error.PermissionDenied,
+            else => |err| return unexpectedKernError(err),
+        }
+    }
+
+    pub const RegionSubmapInfo = struct {
+        pub const Tag = enum {
+            short,
+            full,
+        };
+
+        tag: Tag,
+        base_addr: u64,
+        info: union {
+            short: vm_region_submap_short_info_64,
+            full: vm_region_submap_info_64,
+        },
+    };
+
+    pub fn getRegionSubmapInfo(
+        task: MachTask,
+        address: u64,
+        len: usize,
+        nesting_depth: u32,
+        tag: RegionSubmapInfo.Tag,
+    ) MachError!RegionSubmapInfo {
+        var info: RegionSubmapInfo = .{
+            .base_addr = address,
+            .tag = tag,
+            .info = undefined,
+        };
+        switch (tag) {
+            .short => info.info = .{ .short = undefined },
+            .full => info.info = .{ .full = undefined },
+        }
+        var nesting = nesting_depth;
+        var base_len: mach_vm_size_t = if (len == 1) 2 else len;
+        var count: mach_msg_type_number_t = switch (tag) {
+            .short => VM_REGION_SUBMAP_SHORT_INFO_COUNT_64,
+            .full => VM_REGION_SUBMAP_INFO_COUNT_64,
+        };
+        switch (getKernError(mach_vm_region_recurse(
+            task.port,
+            &info.base_addr,
+            &base_len,
+            &nesting,
+            switch (tag) {
+                .short => @as(vm_region_recurse_info_t, @ptrCast(&info.info.short)),
+                .full => @as(vm_region_recurse_info_t, @ptrCast(&info.info.full)),
+            },
+            &count,
+        ))) {
+            .SUCCESS => return info,
+            .FAILURE => return error.PermissionDenied,
+            else => |err| return unexpectedKernError(err),
+        }
+    }
+
+    pub fn getCurrProtection(task: MachTask, address: u64, len: usize) MachError!vm_prot_t {
+        const info = try task.getRegionSubmapInfo(address, len, 0, .short);
+        return info.info.short.protection;
+    }
+
+    pub fn setMaxProtection(task: MachTask, address: u64, len: usize, prot: vm_prot_t) MachError!void {
+        return task.setProtectionImpl(address, len, true, prot);
+    }
+
+    pub fn setCurrProtection(task: MachTask, address: u64, len: usize, prot: vm_prot_t) MachError!void {
+        return task.setProtectionImpl(address, len, false, prot);
+    }
+
+    fn setProtectionImpl(task: MachTask, address: u64, len: usize, set_max: bool, prot: vm_prot_t) MachError!void {
+        switch (getKernError(mach_vm_protect(task.port, address, len, @intFromBool(set_max), prot))) {
+            .SUCCESS => return,
+            .FAILURE => return error.PermissionDenied,
+            else => |err| return unexpectedKernError(err),
+        }
+    }
+
+    /// Will write to VM even if current protection attributes specifically prohibit
+    /// us from doing so, by temporarily setting protection level to a level with VM_PROT_COPY
+    /// variant, and resetting after a successful or unsuccessful write.
+    pub fn writeMemProtected(task: MachTask, address: u64, buf: []const u8, arch: std.Target.Cpu.Arch) MachError!usize {
+        const curr_prot = try task.getCurrProtection(address, buf.len);
+        try task.setCurrProtection(
+            address,
+            buf.len,
+            PROT.READ | PROT.WRITE | PROT.COPY,
+        );
+        defer {
+            task.setCurrProtection(address, buf.len, curr_prot) catch {};
+        }
+        return task.writeMem(address, buf, arch);
+    }
+
+    pub fn writeMem(task: MachTask, address: u64, buf: []const u8, arch: std.Target.Cpu.Arch) MachError!usize {
+        const count = buf.len;
+        var total_written: usize = 0;
+        var curr_addr = address;
+        const page_size = try getPageSize(task); // TODO we probably can assume value here
+        var out_buf = buf[0..];
+
+        while (total_written < count) {
+            const curr_size = maxBytesLeftInPage(page_size, curr_addr, count - total_written);
+            switch (getKernError(mach_vm_write(
+                task.port,
+                curr_addr,
+                @intFromPtr(out_buf.ptr),
+                @as(mach_msg_type_number_t, @intCast(curr_size)),
+            ))) {
+                .SUCCESS => {},
+                .FAILURE => return error.PermissionDenied,
+                else => |err| return unexpectedKernError(err),
+            }
+
+            switch (arch) {
+                .aarch64 => {
+                    var mattr_value: vm_machine_attribute_val_t = MATTR_VAL_CACHE_FLUSH;
+                    switch (getKernError(vm_machine_attribute(
+                        task.port,
+                        curr_addr,
+                        curr_size,
+                        MATTR_CACHE,
+                        &mattr_value,
+                    ))) {
+                        .SUCCESS => {},
+                        .FAILURE => return error.PermissionDenied,
+                        else => |err| return unexpectedKernError(err),
+                    }
+                },
+                .x86_64 => {},
+                else => unreachable,
+            }
+
+            out_buf = out_buf[curr_size..];
+            total_written += curr_size;
+            curr_addr += curr_size;
+        }
+
+        return total_written;
+    }
+
+    pub fn readMem(task: MachTask, address: u64, buf: []u8) MachError!usize {
+        const count = buf.len;
+        var total_read: usize = 0;
+        var curr_addr = address;
+        const page_size = try getPageSize(task); // TODO we probably can assume value here
+        var out_buf = buf[0..];
+
+        while (total_read < count) {
+            const curr_size = maxBytesLeftInPage(page_size, curr_addr, count - total_read);
+            var curr_bytes_read: mach_msg_type_number_t = 0;
+            var vm_memory: vm_offset_t = undefined;
+            switch (getKernError(mach_vm_read(task.port, curr_addr, curr_size, &vm_memory, &curr_bytes_read))) {
+                .SUCCESS => {},
+                .FAILURE => return error.PermissionDenied,
+                else => |err| return unexpectedKernError(err),
+            }
+
+            @memcpy(out_buf[0..curr_bytes_read], @as([*]const u8, @ptrFromInt(vm_memory)));
+            _ = vm_deallocate(mach_task_self(), vm_memory, curr_bytes_read);
+
+            out_buf = out_buf[curr_bytes_read..];
+            curr_addr += curr_bytes_read;
+            total_read += curr_bytes_read;
+        }
+
+        return total_read;
+    }
+
+    fn maxBytesLeftInPage(page_size: usize, address: u64, count: usize) usize {
+        var left = count;
+        if (page_size > 0) {
+            const page_offset = address % page_size;
+            const bytes_left_in_page = page_size - page_offset;
+            if (count > bytes_left_in_page) {
+                left = bytes_left_in_page;
+            }
+        }
+        return left;
+    }
+
+    fn getPageSize(task: MachTask) MachError!usize {
+        if (task.isValid()) {
+            var info_count = TASK_VM_INFO_COUNT;
+            var vm_info: task_vm_info_data_t = undefined;
+            switch (getKernError(task_info(
+                task.port,
+                TASK_VM_INFO,
+                @as(task_info_t, @ptrCast(&vm_info)),
+                &info_count,
+            ))) {
+                .SUCCESS => return @as(usize, @intCast(vm_info.page_size)),
+                else => {},
+            }
+        }
+        var page_size: vm_size_t = undefined;
+        switch (getKernError(_host_page_size(mach_host_self(), &page_size))) {
+            .SUCCESS => return page_size,
+            else => |err| return unexpectedKernError(err),
+        }
+    }
+
+    pub fn basicTaskInfo(task: MachTask) MachError!mach_task_basic_info {
+        var info: mach_task_basic_info = undefined;
+        var count = MACH_TASK_BASIC_INFO_COUNT;
+        switch (getKernError(task_info(
+            task.port,
+            MACH_TASK_BASIC_INFO,
+            @as(task_info_t, @ptrCast(&info)),
+            &count,
+        ))) {
+            .SUCCESS => return info,
+            else => |err| return unexpectedKernError(err),
+        }
+    }
+
+    pub fn @"resume"(task: MachTask) MachError!void {
+        switch (getKernError(task_resume(task.port))) {
+            .SUCCESS => {},
+            else => |err| return unexpectedKernError(err),
+        }
+    }
+
+    pub fn @"suspend"(task: MachTask) MachError!void {
+        switch (getKernError(task_suspend(task.port))) {
+            .SUCCESS => {},
+            else => |err| return unexpectedKernError(err),
+        }
+    }
+
+    const ThreadList = struct {
+        buf: []MachThread,
+
+        pub fn deinit(list: ThreadList) void {
+            const self_task = machTaskForSelf();
+            _ = vm_deallocate(
+                self_task.port,
+                @intFromPtr(list.buf.ptr),
+                @as(vm_size_t, @intCast(list.buf.len * @sizeOf(mach_port_t))),
+            );
+        }
+    };
+
+    pub fn getThreads(task: MachTask) MachError!ThreadList {
+        var thread_list: mach_port_array_t = undefined;
+        var thread_count: mach_msg_type_number_t = undefined;
+        switch (getKernError(task_threads(task.port, &thread_list, &thread_count))) {
+            .SUCCESS => return ThreadList{ .buf = @as([*]MachThread, @ptrCast(thread_list))[0..thread_count] },
+            else => |err| return unexpectedKernError(err),
+        }
+    }
+};
+
+pub const MachThread = extern struct {
+    port: mach_port_t,
+
+    pub fn isValid(thread: MachThread) bool {
+        return thread.port != THREAD_NULL;
+    }
+
+    pub fn getBasicInfo(thread: MachThread) MachError!thread_basic_info {
+        var info: thread_basic_info = undefined;
+        var count = THREAD_BASIC_INFO_COUNT;
+        switch (getKernError(thread_info(
+            thread.port,
+            THREAD_BASIC_INFO,
+            @as(thread_info_t, @ptrCast(&info)),
+            &count,
+        ))) {
+            .SUCCESS => return info,
+            else => |err| return unexpectedKernError(err),
+        }
+    }
+
+    pub fn getIdentifierInfo(thread: MachThread) MachError!thread_identifier_info {
+        var info: thread_identifier_info = undefined;
+        var count = THREAD_IDENTIFIER_INFO_COUNT;
+        switch (getKernError(thread_info(
+            thread.port,
+            THREAD_IDENTIFIER_INFO,
+            @as(thread_info_t, @ptrCast(&info)),
+            &count,
+        ))) {
+            .SUCCESS => return info,
+            else => |err| return unexpectedKernError(err),
+        }
+    }
+};
+
+pub fn machTaskForPid(pid: std.os.pid_t) MachError!MachTask {
+    var port: mach_port_name_t = undefined;
+    switch (getKernError(task_for_pid(mach_task_self(), pid, &port))) {
+        .SUCCESS => {},
+        .FAILURE => return error.PermissionDenied,
+        else => |err| return unexpectedKernError(err),
+    }
+    return MachTask{ .port = port };
+}
+
+pub fn machTaskForSelf() MachTask {
+    return .{ .port = mach_task_self() };
+}
+
+pub const os_signpost_id_t = u64;
+
+pub const OS_SIGNPOST_ID_NULL: os_signpost_id_t = 0;
+pub const OS_SIGNPOST_ID_INVALID: os_signpost_id_t = !0;
+pub const OS_SIGNPOST_ID_EXCLUSIVE: os_signpost_id_t = 0xeeeeb0b5b2b2eeee;
+
+pub const os_log_t = opaque {};
+pub const os_log_type_t = enum(u8) {
+    /// default messages always captures
+    OS_LOG_TYPE_DEFAULT = 0x00,
+    /// messages with additional infos
+    OS_LOG_TYPE_INFO = 0x01,
+    /// debug messages
+    OS_LOG_TYPE_DEBUG = 0x02,
+    /// error messages
+    OS_LOG_TYPE_ERROR = 0x10,
+    /// unexpected conditions messages
+    OS_LOG_TYPE_FAULT = 0x11,
+};
+
+pub const OS_LOG_CATEGORY_POINTS_OF_INTEREST: *const u8 = "PointsOfInterest";
+pub const OS_LOG_CATEGORY_DYNAMIC_TRACING: *const u8 = "DynamicTracing";
+pub const OS_LOG_CATEGORY_DYNAMIC_STACK_TRACING: *const u8 = "DynamicStackTracing";
+
+pub extern "c" fn os_log_create(subsystem: [*]const u8, category: [*]const u8) os_log_t;
+pub extern "c" fn os_log_type_enabled(log: os_log_t, tpe: os_log_type_t) bool;
+pub extern "c" fn os_signpost_id_generate(log: os_log_t) os_signpost_id_t;
+pub extern "c" fn os_signpost_interval_begin(log: os_log_t, signpos: os_signpost_id_t, func: [*]const u8, ...) void;
+pub extern "c" fn os_signpost_interval_end(log: os_log_t, signpos: os_signpost_id_t, func: [*]const u8, ...) void;
+pub extern "c" fn os_signpost_id_make_with_pointer(log: os_log_t, ptr: ?*anyopaque) os_signpost_id_t;
+pub extern "c" fn os_signpost_enabled(log: os_log_t) bool;

@@ -7,7 +7,7 @@ pub const Stack = @import("atomic/stack.zig").Stack;
 pub const Queue = @import("atomic/queue.zig").Queue;
 pub const Atomic = @import("atomic/Atomic.zig").Atomic;
 
-test "std.atomic" {
+test {
     _ = @import("atomic/stack.zig");
     _ = @import("atomic/queue.zig");
     _ = @import("atomic/Atomic.zig");
@@ -44,7 +44,7 @@ pub inline fn spinLoopHint() void {
         // No-op instruction that can hint to save (or share with a hardware-thread)
         // pipelining/power resources
         // https://software.intel.com/content/www/us/en/develop/articles/benefitting-power-and-performance-sleep-loops.html
-        .i386, .x86_64 => asm volatile ("pause" ::: "memory"),
+        .x86, .x86_64 => asm volatile ("pause" ::: "memory"),
 
         // No-op instruction that serves as a hardware-thread resource yield hint.
         // https://stackoverflow.com/a/7588941

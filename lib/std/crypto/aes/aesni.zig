@@ -97,12 +97,12 @@ pub const Block = struct {
 
         /// The recommended number of AES encryption/decryption to perform in parallel for the chosen implementation.
         pub const optimal_parallel_blocks = switch (builtin.cpu.model) {
-            &cpu.westmere => 6,
-            &cpu.sandybridge, &cpu.ivybridge => 8,
-            &cpu.haswell, &cpu.broadwell => 7,
-            &cpu.cannonlake, &cpu.skylake, &cpu.skylake_avx512 => 4,
+            &cpu.westmere, &cpu.goldmont => 3,
+            &cpu.cannonlake, &cpu.skylake, &cpu.skylake_avx512, &cpu.tremont, &cpu.goldmont_plus, &cpu.cascadelake => 4,
             &cpu.icelake_client, &cpu.icelake_server, &cpu.tigerlake, &cpu.rocketlake, &cpu.alderlake => 6,
-            &cpu.znver1, &cpu.znver2, &cpu.znver3 => 8,
+            &cpu.haswell, &cpu.broadwell => 7,
+            &cpu.sandybridge, &cpu.ivybridge => 8,
+            &cpu.znver1, &cpu.znver2, &cpu.znver3, &cpu.znver4 => 8,
             else => 8,
         };
 
@@ -200,7 +200,7 @@ fn KeySchedule(comptime Aes: type) type {
         fn expand128(t1: *Block) Self {
             var round_keys: [11]Block = undefined;
             const rcs = [_]u8{ 1, 2, 4, 8, 16, 32, 64, 128, 27, 54 };
-            inline for (rcs) |rc, round| {
+            inline for (rcs, 0..) |rc, round| {
                 round_keys[round] = t1.*;
                 t1.repr = drc(false, rc, t1.repr, t1.repr);
             }
@@ -212,7 +212,7 @@ fn KeySchedule(comptime Aes: type) type {
             var round_keys: [15]Block = undefined;
             const rcs = [_]u8{ 1, 2, 4, 8, 16, 32 };
             round_keys[0] = t1.*;
-            inline for (rcs) |rc, round| {
+            inline for (rcs, 0..) |rc, round| {
                 round_keys[round * 2 + 1] = t2.*;
                 t1.repr = drc(false, rc, t2.repr, t1.repr);
                 round_keys[round * 2 + 2] = t1.*;
